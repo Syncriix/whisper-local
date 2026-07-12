@@ -75,6 +75,8 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 - ⚡ **Pre-roll buffer + warmup** — captures the 500 ms before you press the key *and* pre-loads Whisper at boot, so the first word is never clipped and the first recording feels instant
 - 🔵 **Floating level overlay** — a small pill at the screen edge shows you're being heard, with the transcript appearing next to the level bar (Wispr Flow–style). Optional [real-time streaming preview](docs/streaming.md) shows words *as you speak*.
 - 📝 **Inline voice formatting** — say "comma", "period", "question mark", "new paragraph", "open quote", etc. mid-sentence. **Fully customizable** for any language via `postprocess.inline_formatting_replacements` (e.g. map Polish phrases to punctuation, or "arrow" → →)
+- ✂️ **Voice editing** — say "scratch that" to erase what you just said, back to the start of the sentence (`postprocess.voice_editing`, opt-in)
+- 🔢 **Smart formatting** — deterministic, offline: "3 p.m." → "3 PM", "john at example dot com" → "john@example.com" (`postprocess.smart_formatting`, each toggle opt-in)
 - 🤖 **AI rephrase** — dedicated `Ctrl+Shift+Win` hotkey: select text, hold, speak your instruction, release — local Ollama rewrites it in place
 - 🌐 **Translation mode** — speak any language, get English; tray → Profile → Translate
 - 🔁 **Continuous dictation mode** — for long-form notes, the app auto-restarts recording after each delivery
@@ -94,6 +96,8 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 - 🔧 **Settings backup/restore** — `--export-settings` / `--import-settings` for portability
 - 🖥️ **Settings UI** — `whisper-local --settings` opens a GUI settings window (no YAML editing required)
 - 📜 **Transcript history** — `whisper-local --history` opens a searchable log of everything you've dictated
+- 🧠 **Self-improving accuracy** — from the history window, turn any misrecognition into a permanent correction ("Fix this everywhere…"), or let it mine your own history for names to add to your dictionary ("Suggest hotwords"). All offline; corrections apply on your next dictation, no restart
+- 🔊 **System-audio capture** *(experimental)* — `whisper-local --transcribe-system` transcribes what you *hear* (meetings, videos), not just the mic (`pip install 'whisper-local[loopback]'`, Windows-first)
 - 🔔 **Opt-in update notifications** — daily GitHub release check, fully offline by default (`update_check.enabled: true` to opt in)
 - 🎚️ **Noise suppression** — spectral gating via `noisereduce`, off by default (`pip install 'whisper-local[noise]'`)
 - 🩺 **`--selftest`** — one-command sanity check (mic, model, transcription, clipboard) — perfect for first-launch

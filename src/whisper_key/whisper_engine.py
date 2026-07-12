@@ -6,6 +6,27 @@ from typing import Optional, Callable
 import numpy as np
 from faster_whisper import WhisperModel
 
+# Approximate on-disk download sizes for the standard Whisper models, shown in
+# the first-run download message so the wait is expected, not mysterious. Keyed
+# by the leading size token (handles ".en" and "large-v3" style keys). Unknown
+# models just omit the size hint.
+_MODEL_SIZE_HINTS = {
+    'tiny': '~75 MB',
+    'base': '~141 MB',
+    'small': '~465 MB',
+    'medium': '~1.5 GB',
+    'large': '~3 GB',
+    'distil': '~1.5 GB',
+}
+
+
+def _model_size_hint(model_key: str) -> str:
+    key = (model_key or '').lower()
+    for prefix, size in _MODEL_SIZE_HINTS.items():
+        if key.startswith(prefix):
+            return size
+    return ''
+
 
 class WhisperEngine:
     def __init__(self,
@@ -59,7 +80,11 @@ class WhisperEngine:
 
             was_cached = self._is_model_cached()
             if not was_cached:
-                print("Downloading model, this may take a few minutes....")
+                size = _model_size_hint(self.model_key)
+                size_note = f" ({size})" if size else ""
+                print(f"⬇  Downloading the '{self.model_key}' model{size_note} — "
+                      "first run only. This can take a few minutes; a progress bar "
+                      "appears below.")
 
             model_source = self._get_model_source(self.model_key)
             self.model = WhisperModel(

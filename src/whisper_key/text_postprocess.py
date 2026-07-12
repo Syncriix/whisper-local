@@ -35,8 +35,27 @@ def postprocess(text: str, config: dict) -> str:
     if not text or not config:
         return text
 
+    # Spoken editing commands ("scratch that") operate on the raw dictation flow,
+    # so they run first — before any symbol/format rewriting.
+    if config.get('voice_editing', False):
+        text = _apply_voice_editing(text)
+
     if config.get('inline_formatting', False):
         text = _apply_inline_formatting(text, config)
+
+    # Deterministic, offline symbol formatting (times / emails / URLs). Each
+    # sub-toggle is off by default; only run the pass if at least one is on.
+    smart_cfg = config.get('smart_formatting') or {}
+    if any(smart_cfg.get(k) for k in ('times', 'emails', 'urls')):
+        text = _apply_smart_formatting(text, smart_cfg)
+
+    # User corrections (misrecognition fixes, e.g. "see translate two" →
+    # "CTranslate2"). Applied late so they win over formatting, but before the
+    # Ollama pass so the LLM sees already-corrected text. This is the backing
+    # store for the history window's one-click "always fix this".
+    replacements = config.get('replacements') or []
+    if replacements:
+        text = _apply_replacements(text, replacements)
 
     if config.get('strip_filler_words', False):
         text = _strip_fillers(text)
@@ -115,6 +134,113 @@ def _apply_inline_formatting(text: str, config: dict = None) -> str:
     text = re.sub(r'\s+\)', ')', text)
     text = re.sub(r' {2,}', ' ', text)
     return text.strip()
+
+
+# =============================================================================
+# Spoken editing commands
+# =============================================================================
+
+# "scratch that" / "delete that" / "strike that" — Wispr-style self-correction.
+# Removes the command AND the clause it follows (back to the previous sentence
+# terminator or newline), so "book the flight, scratch that, cancel it" →
+# "cancel it". The char class stops at .!?\n, so it never eats across a prior
+# sentence you meant to keep. A trailing command with nothing before it just
+# disappears. Case-insensitive; a following comma/period artifact is absorbed.
+# Trailing class is [ \t,.]* (NOT \s*): it must not eat the newline after the
+# command, or "first scratch that\nsecond" would pull "second" up onto the first
+# line — the leading scan already stops at \n, so the trailing side must too.
+_VOICE_EDIT_SCRATCH = re.compile(
+    r'[^.!?\n]*?\b(?:scratch|delete|strike)\s+that\b[ \t,.]*',
+    flags=re.IGNORECASE,
+)
+
+
+def _apply_voice_editing(text: str) -> str:
+    # Replace the removed clause+command with a single space (not nothing), so the
+    # separator after a preceding sentence survives ("flight. scratch that go" →
+    # "flight. go", not "flight.go"). Scratching the entire utterance yields "".
+    cleaned = _VOICE_EDIT_SCRATCH.sub(' ', text)
+    cleaned = re.sub(r' {2,}', ' ', cleaned)
+    cleaned = re.sub(r'[ \t]+\n', '\n', cleaned)         # no trailing space before a break
+    cleaned = re.sub(r'\s+([.,!?;:])', r'\1', cleaned)   # no space before punctuation
+    return cleaned.strip()
+
+
+# =============================================================================
+# Deterministic smart formatting (times / emails / URLs)
+# =============================================================================
+
+# Known TLDs we're willing to collapse from speech. Kept deliberately small and
+# common so "<word> dot <tld>" only fires on things that really look like a
+# domain, not ordinary prose ("connect the dots" has no trailing TLD).
+_TLDS = 'com|org|net|io|dev|co|edu|gov|ai|app|uk|us|ca|de|fr'
+
+# "3pm" / "3 p.m." / "3:30 pm" → "3 PM" / "3:30 PM". Requires a leading digit,
+# so it can't fire inside words like "spam".
+# The trailing (?![A-Za-z0-9]) excludes a following letter OR digit, so "pm2.5"
+# (an air-quality token) and "3 pm2" aren't mangled into a time.
+_TIME_RE = re.compile(
+    r'\b(\d{1,2}(?::\d{2})?)\s*([ap])\.?\s*m\.?(?![A-Za-z0-9])',
+    flags=re.IGNORECASE,
+)
+
+# "john at example dot com" → "john@example.com". The "at ... dot <tld>" shape is
+# a strong signal, so this rarely fires on prose ("meet me at noon" has no
+# "dot <tld>"). Emails run before URLs so the domain isn't collapsed twice.
+_EMAIL_RE = re.compile(
+    r'\b([A-Za-z0-9][A-Za-z0-9._%+-]*)\s+at\s+([A-Za-z0-9][A-Za-z0-9.-]*)\s+dot\s+(' + _TLDS + r')\b',
+    flags=re.IGNORECASE,
+)
+
+# "example dot com" → "example.com". Opt-in; can occasionally fire on
+# "<word> dot <tld>" in prose, which is why it's its own toggle.
+_URL_RE = re.compile(
+    r'\b([A-Za-z0-9][A-Za-z0-9-]*)\s+dot\s+(' + _TLDS + r')\b',
+    flags=re.IGNORECASE,
+)
+
+
+def _apply_smart_formatting(text: str, cfg: dict) -> str:
+    if cfg.get('emails'):
+        text = _EMAIL_RE.sub(lambda m: f"{m.group(1)}@{m.group(2)}.{m.group(3).lower()}", text)
+    if cfg.get('urls'):
+        text = _URL_RE.sub(lambda m: f"{m.group(1)}.{m.group(2).lower()}", text)
+    if cfg.get('times'):
+        text = _TIME_RE.sub(lambda m: f"{m.group(1)} {m.group(2).upper()}M", text)
+    return text
+
+
+# =============================================================================
+# User corrections (post-transcription replacements)
+# =============================================================================
+
+# Literal, whole-word, case-insensitive text corrections applied after
+# transcription. Each item: {from, to, whole_word=true, case_sensitive=false,
+# regex=false}. Literal replacement text is inserted verbatim (no backref
+# interpretation), and a bad regex is skipped rather than crashing the pipeline.
+def _apply_replacements(text: str, items: list) -> str:
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        frm = str(item.get('from', ''))
+        if not frm.strip():
+            continue
+        to = str(item.get('to', ''))
+        flags = 0 if item.get('case_sensitive', False) else re.IGNORECASE
+        if item.get('regex', False):
+            pattern = frm
+        else:
+            escaped = re.escape(frm)
+            # Edge-aware boundaries, not \b…\b: \b needs a word char on the inside
+            # edge, so a `from` like "C++", "C#" or ".NET" (non-word edge) would
+            # never match. (?<!\w)…(?!\w) still enforces whole-word for normal
+            # terms ("cat" won't hit "category") while allowing punctuation edges.
+            pattern = r'(?<!\w)' + escaped + r'(?!\w)' if item.get('whole_word', True) else escaped
+        try:
+            text = re.sub(pattern, lambda _m, r=to: r, text, flags=flags)
+        except re.error as e:
+            logger.debug(f"Skipping invalid replacement {frm!r}: {e}")
+    return text
 
 
 def _strip_fillers(text: str) -> str:

@@ -349,7 +349,14 @@ def main():
     parser.add_argument('--serve', action='store_true', help='Run a local OpenAI-compatible Whisper API server')
     parser.add_argument('--serve-host', default='127.0.0.1', help='Server bind host (default: 127.0.0.1)')
     parser.add_argument('--serve-port', type=int, default=7777, help='Server bind port (default: 7777)')
+    parser.add_argument('--transcribe-system', metavar='SECONDS', nargs='?', const=10, type=int,
+                        help='Transcribe N seconds of system audio / loopback (default 10). '
+                             'Needs the loopback extra: pip install whisper-local[loopback]. EXPERIMENTAL.')
     args = parser.parse_args()
+
+    if args.transcribe_system is not None:  # 0 is a valid (if silly) value; None = flag absent
+        from .system_audio import run_cli
+        sys.exit(run_cli(args.transcribe_system))
 
     if args.version:
         print(f"whisper-local {get_version()}")

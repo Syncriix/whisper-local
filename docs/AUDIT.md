@@ -1,10 +1,53 @@
 # Whisper Local — Code Audit & Improvement Backlog
 
-**Last updated:** 2026-07-01
+**Last updated:** 2026-07-11
 **Audited versions:** 0.10.0 (Round 1, below) and 0.11.x (Round 2, next section)
 **Method:** Parallel subsystem reviews + manual verification of every finding before fixing.
 
 > This is a living document. Each issue has a stable ID (e.g. `SRV-1`) so commits and PRs can reference it. When you fix one, change its **Status** to `FIXED (<commit>)` rather than deleting it, so history stays readable.
+
+---
+
+## Round 5 (0.16.0) — feature build + adversarial review (2026-07)
+
+Shipped five features (post-transcription corrections + history "Fix this
+everywhere" / hotword mining; deterministic smart formatting; voice editing;
+experimental system-audio capture) and two first-run fixes (download size hint,
+windowless silent-close dialog). Then ran three parallel adversarial reviewers;
+every confirmed finding was hand-verified and fixed with a regression test.
+
+**Fixed after review:**
+- **R5-1 (Critical, test/CI hang)** `instance_manager._notify_no_console` called a
+  *blocking* `MessageBoxW` whenever `GetConsoleWindow()==0`; a headless test/CI
+  process has no console, so the modal hung forever (caught by a 4-min suite
+  timeout). Split out `_console_attached()` so it's stubbable, and the test forces
+  it True. Real windowless app still gets the dialog.
+- **R5-2 (Correctness)** `text_postprocess._apply_replacements` used `\b…\b`, which
+  silently dropped corrections whose `from` has a non-word edge (`C++`, `C#`,
+  `.NET`, `@handle`). Switched to `(?<!\w)…(?!\w)` — still whole-word for normal
+  terms. +test.
+- **R5-3 (Bug)** `_TIME_RE` mangled digit-suffixed tokens like `pm2.5`; trailing
+  guard tightened to `(?![A-Za-z0-9])`. +test.
+- **R5-4 (Bug)** voice-editing's trailing `[\s,.]*` ate the newline after the
+  command, pulling the next line up; narrowed to `[ \t,.]*` + strip trailing
+  space before breaks. +test.
+- **R5-5 (Correctness)** `system_audio.run_cli` ignored `backend: whisper_cpp`
+  (would use faster-whisper and re-download); now mirrors selftest's branch.
+- **R5-6 (Bug)** `--transcribe-system 0` was falsy and fell through to a full app
+  launch (terminating a running instance); guard is now `is not None`.
+- **R5-7 (UX)** history "saved ✓" confirmation was clobbered by a synchronous
+  count-refresh in the same Tk callback; reordered. Correction dedup is now
+  case-insensitive so "teh"/"Teh" don't create two rules.
+- **R5-8 (Docs)** system-audio module/pyproject/config comments corrected:
+  loopback is Windows-first (macOS needs a virtual device); emails/urls smart
+  formatting documented as aggressive (fires on same-shaped prose), off by default.
+
+**Verified CLEAN (no change needed):** `add_replacement` ruamel round-trip
+(comments/sections preserved; update-in-place aliasing correct), WhisperEngine
+constructor arg match, soundcard loopback API, `_model_size_hint` prefix matching,
+`_notify_no_console` non-Windows safety, no ReDoS in the four new regexes, Unicode
+`\b` behaviour, Tk threading in the new dialogs, `suggest_hotwords` sentence-initial
+detection.
 
 ---
 

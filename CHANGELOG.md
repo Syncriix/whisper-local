@@ -4,6 +4,44 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
 
 ## [Unreleased]
 
+## [0.16.0]
+
+### Added
+- **Post-transcription corrections** (`postprocess.replacements`) — literal,
+  whole-word, case-insensitive text fixes applied after Whisper and before any
+  Ollama step, for consistent misrecognitions ("see translate two" →
+  "CTranslate2"). Regex-escaped by default; an optional `regex: true` per entry
+  for power users (a bad pattern is skipped, never crashes the pipeline).
+- **Self-improving accuracy from the history window.** "Fix this everywhere…"
+  turns a misrecognition in any past transcript into a persistent correction,
+  and "Suggest hotwords" mines your own dictation history for frequent
+  proper-noun-ish words and offers to add them to your dictionary — all offline,
+  you confirm each one. The running app hot-reloads corrections, so a fix
+  applies on your next dictation without a restart.
+- **Deterministic smart formatting** (`postprocess.smart_formatting`, each
+  sub-toggle off by default): `times` ("3 p.m." → "3 PM"), `emails` ("john at
+  example dot com" → "john@example.com"), `urls` ("example dot com" →
+  "example.com"). Pure regex, no LLM; gated on a trailing known TLD so they
+  rarely touch ordinary prose.
+- **Voice editing** (`postprocess.voice_editing`) — say "scratch that" (or
+  "delete that" / "strike that") to erase what you just said back to the start
+  of the sentence: "book the flight, scratch that, cancel it" → "cancel it".
+- **System-audio capture (experimental, opt-in)** — `whisper-local
+  --transcribe-system [SECONDS]` transcribes what you *hear* (meetings, videos),
+  not just the mic, via the optional loopback extra
+  (`pip install whisper-local[loopback]`). Fully isolated from the live mic
+  stream. Windows/macOS; needs the extra installed.
+- New settings-window checkboxes for voice editing and the three smart-formatting
+  toggles.
+
+### Fixed
+- **First-run model download now says what it's doing.** The download message
+  names the model and its approximate size ("Downloading the 'base' model
+  (~141 MB) — first run only…") instead of a bare "Downloading model".
+- **No more silent close when another copy is already running and unresponsive.**
+  The standalone `.exe` / autostart launch is windowless, so the takeover-failed
+  message went nowhere; it now shows a dialog box on Windows explaining what to do.
+
 ## [0.15.0]
 
 ### Added

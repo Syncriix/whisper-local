@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whisper-local"
-version = "0.15.0"
+version = "0.16.0"
 description = "Free, open-source, fully offline AI dictation for Windows and macOS. Hold a hotkey, speak, get text at the cursor. 100% local. Powered by Whisper."
 readme = "README.md"
 license = "MIT"
@@ -71,6 +71,10 @@ whispercpp = ["pywhispercpp>=1.2"]
 
 # Spectral noise suppression via noisereduce (set `audio.noise_suppression.enabled: true`)
 noise = ["noisereduce>=3.0.0"]
+
+# System-audio (loopback) capture — transcribe what you hear (meetings, videos)
+# via `whisper-local --transcribe-system`. Windows/macOS. EXPERIMENTAL.
+loopback = ["soundcard>=0.4.2"]
 
 [project.scripts]
 whisper-local = "whisper_key.main:main"

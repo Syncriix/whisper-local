@@ -212,6 +212,120 @@ class TextPostprocessTests(unittest.TestCase):
         result = _ollama_polish("hi", cfg)
         self.assertEqual(result, '')
 
+    # --- Post-transcription replacements (correction-learning backing store) ---
+    def test_replacement_literal_whole_word(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'replacements': [{'from': 'see translate two', 'to': 'CTranslate2'}]}
+        self.assertEqual(postprocess("we use see translate two here", cfg),
+                         "we use CTranslate2 here")
+
+    def test_replacement_whole_word_does_not_match_substring(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'replacements': [{'from': 'cat', 'to': 'dog'}]}
+        self.assertEqual(postprocess("the category cat", cfg), "the category dog")
+
+    def test_replacement_case_insensitive_by_default(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'replacements': [{'from': 'my sequel', 'to': 'MySQL'}]}
+        self.assertEqual(postprocess("I love My Sequel", cfg), "I love MySQL")
+
+    def test_replacement_to_text_is_literal(self):
+        # Replacement text with regex-special chars is inserted verbatim.
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'replacements': [{'from': 'foo', 'to': r'\1$&'}]}
+        self.assertEqual(postprocess("a foo b", cfg), r"a \1$& b")
+
+    def test_replacement_invalid_regex_is_skipped(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'replacements': [{'from': '(unclosed', 'to': 'x', 'regex': True}]}
+        # Must not raise; text passes through unchanged.
+        self.assertEqual(postprocess("hello (unclosed world", cfg),
+                         "hello (unclosed world")
+
+    def test_replacement_matches_punctuation_edged_terms(self):
+        # Regression: \b…\b silently dropped C++ / C# / .NET (non-word edges).
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'replacements': [
+            {'from': 'C++', 'to': 'CPP'},
+            {'from': '.NET', 'to': 'dotnet'},
+        ]}
+        self.assertEqual(postprocess("I love C++ and .NET here", cfg),
+                         "I love CPP and dotnet here")
+
+    def test_replacement_whole_word_still_holds_for_normal_terms(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'replacements': [{'from': 'cat', 'to': 'dog'}]}
+        self.assertEqual(postprocess("category cat scatter", cfg),
+                         "category dog scatter")
+
+    # --- Deterministic smart formatting ---
+    def test_smart_formatting_times(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'smart_formatting': {'times': True}}
+        self.assertEqual(postprocess("meet at 3 p.m. sharp", cfg), "meet at 3 PM sharp")
+        self.assertEqual(postprocess("call at 3:30pm", cfg), "call at 3:30 PM")
+
+    def test_smart_formatting_times_does_not_touch_words(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'smart_formatting': {'times': True}}
+        self.assertEqual(postprocess("spam and jam", cfg), "spam and jam")
+
+    def test_smart_formatting_times_ignores_digit_suffixed_token(self):
+        # Regression: "pm2.5" must not be mangled into a time.
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'smart_formatting': {'times': True}}
+        self.assertEqual(postprocess("pm2.5 was high at 3 pm2 station", cfg),
+                         "pm2.5 was high at 3 pm2 station")
+
+    def test_smart_formatting_email(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'smart_formatting': {'emails': True}}
+        self.assertEqual(postprocess("email john at example dot com please", cfg),
+                         "email john@example.com please")
+
+    def test_smart_formatting_email_ignores_plain_prose(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'smart_formatting': {'emails': True}}
+        self.assertEqual(postprocess("let us meet at noon", cfg), "let us meet at noon")
+
+    def test_smart_formatting_url(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'smart_formatting': {'urls': True}}
+        self.assertEqual(postprocess("go to example dot com now", cfg),
+                         "go to example.com now")
+
+    def test_smart_formatting_off_by_default(self):
+        from whisper_key.text_postprocess import postprocess
+        # No smart_formatting key → spoken forms left untouched.
+        self.assertEqual(postprocess("john at example dot com", {'inline_formatting': False}),
+                         "john at example dot com")
+
+    # --- Voice editing ("scratch that") ---
+    def test_voice_editing_scratch_that(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'voice_editing': True}
+        self.assertEqual(postprocess("book the flight. scratch that cancel it", cfg),
+                         "book the flight. cancel it")
+
+    def test_voice_editing_delete_and_strike_variants(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'voice_editing': True}
+        self.assertEqual(postprocess("hello world delete that", cfg), "")  # nothing survives
+        self.assertEqual(postprocess("first. junk here strike that", cfg), "first.")
+
+    def test_voice_editing_off_leaves_phrase(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess("please scratch that itch", {'voice_editing': False}),
+                         "please scratch that itch")
+
+    def test_voice_editing_preserves_line_break_after_command(self):
+        # Regression: the trailing class must not eat the newline separating the
+        # scratched clause from the next line.
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'voice_editing': True}
+        self.assertEqual(postprocess("alpha. beta scratch that\ngamma", cfg),
+                         "alpha.\ngamma")
+
 
 class AppRulesShapeTests(unittest.TestCase):
     def test_defaults_yaml_is_valid(self):
@@ -397,6 +511,174 @@ class SettingsUiModuleTests(unittest.TestCase):
     def test_module_importable(self):
         from whisper_key import settings_ui
         self.assertTrue(hasattr(settings_ui, 'run_settings_window'))
+
+
+class SystemAudioTests(unittest.TestCase):
+    # The real capture path needs audio hardware (verified separately); here we
+    # test the plumbing: graceful absence of soundcard, and mono/rate shaping.
+    def test_capture_without_soundcard_returns_none(self):
+        import io
+        import contextlib
+        saved = sys.modules.pop('soundcard', None)
+        try:
+            from whisper_key import system_audio
+            self.assertFalse(system_audio.is_available())
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                out = system_audio.capture_loopback(1)
+            self.assertIsNone(out)
+            self.assertIn('loopback', buf.getvalue().lower())
+        finally:
+            if saved is not None:
+                sys.modules['soundcard'] = saved
+
+    def test_capture_with_mock_soundcard_returns_mono_float32(self):
+        import types
+        import numpy as np
+
+        class _Rec:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def record(self, numframes):
+                return np.full((numframes, 2), 0.5, dtype=np.float32)  # stereo
+
+        class _Mic:
+            def recorder(self, samplerate, channels):
+                return _Rec()
+
+        class _Spk:
+            name = 'Speakers'
+
+        fake = types.ModuleType('soundcard')
+        fake.default_speaker = lambda: _Spk()
+        fake.get_microphone = lambda id, include_loopback=False: _Mic()
+        sys.modules['soundcard'] = fake
+        try:
+            from whisper_key import system_audio
+            out = system_audio.capture_loopback(1, samplerate=16000)
+            self.assertIsNotNone(out)
+            self.assertEqual(out.ndim, 1)              # collapsed to mono
+            self.assertEqual(str(out.dtype), 'float32')
+            self.assertEqual(len(out), 16000)          # 1s @ 16 kHz
+        finally:
+            del sys.modules['soundcard']
+
+
+class ModelDownloadHintTests(unittest.TestCase):
+    # First-run UX: the download message names an approximate size per model.
+    def test_size_hint_for_known_models(self):
+        try:
+            from whisper_key.whisper_engine import _model_size_hint
+        except Exception:
+            self.skipTest("whisper_engine not importable (faster_whisper absent)")
+        self.assertEqual(_model_size_hint('base'), '~141 MB')
+        self.assertEqual(_model_size_hint('base.en'), '~141 MB')
+        self.assertEqual(_model_size_hint('large-v3'), '~3 GB')
+        self.assertEqual(_model_size_hint('unknown-model'), '')
+
+
+class InstanceManagerNoConsoleTests(unittest.TestCase):
+    # The silent-close fix must import cleanly and print on all platforms.
+    def test_notify_no_console_prints(self):
+        import io
+        import contextlib
+        import unittest.mock as mock
+        from whisper_key import instance_manager
+        buf = io.StringIO()
+        # Force "console attached" so the blocking MessageBox path can never run
+        # (this process may itself be headless).
+        with mock.patch.object(instance_manager, '_console_attached', return_value=True):
+            with contextlib.redirect_stdout(buf):
+                instance_manager._notify_no_console("T", "already running message")
+        self.assertIn("already running message", buf.getvalue())
+
+
+class CorrectionsTests(unittest.TestCase):
+    # Correction persistence (postprocess.replacements) — the learning-loop store.
+    def _with_temp_settings(self):
+        import tempfile
+        import unittest.mock as mock
+        d = tempfile.mkdtemp()
+        from whisper_key import corrections as cmod
+        patcher = mock.patch.object(cmod, 'get_user_app_data_path', return_value=d)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return cmod, d
+
+    def test_add_and_list_replacement(self):
+        cmod, _ = self._with_temp_settings()
+        self.assertTrue(cmod.add_replacement('see translate two', 'CTranslate2'))
+        items = cmod.list_replacements()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['from'], 'see translate two')
+        self.assertEqual(items[0]['to'], 'CTranslate2')
+
+    def test_add_replacement_rejects_empty_and_noop(self):
+        cmod, _ = self._with_temp_settings()
+        self.assertFalse(cmod.add_replacement('', 'x'))
+        self.assertFalse(cmod.add_replacement('same', 'same'))
+        self.assertEqual(cmod.list_replacements(), [])
+
+    def test_add_replacement_updates_existing_from(self):
+        cmod, _ = self._with_temp_settings()
+        cmod.add_replacement('foo', 'bar')
+        self.assertTrue(cmod.add_replacement('foo', 'baz'))  # same from, new to → update
+        items = cmod.list_replacements()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['to'], 'baz')
+
+    def test_add_replacement_dedupes_identical(self):
+        cmod, _ = self._with_temp_settings()
+        cmod.add_replacement('foo', 'bar')
+        self.assertFalse(cmod.add_replacement('foo', 'bar'))  # exact dup → no-op
+        self.assertEqual(len(cmod.list_replacements()), 1)
+
+    def test_add_replacement_updates_case_insensitively(self):
+        # "teh" and "Teh" must not create two rules that both fire (matching is
+        # case-insensitive), so adding a case variant updates in place.
+        cmod, _ = self._with_temp_settings()
+        cmod.add_replacement('Teh', 'The')
+        self.assertTrue(cmod.add_replacement('teh', 'THE'))
+        items = cmod.list_replacements()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['to'], 'THE')
+
+    def test_saved_correction_is_applied_by_postprocess(self):
+        # End-to-end: what corrections.py writes must be consumable by postprocess.
+        cmod, _ = self._with_temp_settings()
+        cmod.add_replacement('my sequel', 'MySQL')
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'replacements': cmod.list_replacements()}
+        self.assertEqual(postprocess('I use my sequel daily', cfg), 'I use MySQL daily')
+
+
+class HotwordSuggestTests(unittest.TestCase):
+    def test_suggest_picks_frequent_proper_nouns(self):
+        from whisper_key.dictionary import suggest_hotwords
+        texts = [
+            "We deployed Kubernetes today.",
+            "The Kubernetes cluster is fine. Kubernetes again.",
+            "I love Kubernetes and also PostgreSQL.",
+        ]
+        got = dict(suggest_hotwords(texts, min_count=3))
+        self.assertIn('Kubernetes', got)
+        self.assertEqual(got['Kubernetes'], 3)  # sentence-initial one not counted
+
+    def test_suggest_excludes_known_hotwords(self):
+        from whisper_key.dictionary import suggest_hotwords
+        texts = ["Use Redis now.", "Redis is great with Redis.", "More Redis here."]
+        got = dict(suggest_hotwords(texts, known={'redis'}, min_count=2))
+        self.assertNotIn('Redis', got)
+
+    def test_suggest_ignores_plain_sentence_starts(self):
+        from whisper_key.dictionary import suggest_hotwords
+        texts = ["Today was good.", "Today is better.", "Today we ship."]
+        # "Today" only ever appears sentence-initial → not a suggestion.
+        self.assertEqual(suggest_hotwords(texts, min_count=2), [])
 
 
 class OnboardingBannerTests(unittest.TestCase):

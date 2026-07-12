@@ -40,7 +40,9 @@ Open-source fork of [PinW/whisper-key-local](https://github.com/PinW/whisper-key
 | **Dictionary** | `dictionary.py` | Hotword add/remove/list + add-word dialog | tkinter, ruamel.yaml |
 | **Profiles** | `profiles.py` | Dictation/Chat/Code/Notes/Translate presets | ruamel.yaml |
 | **Per-App Rules** | `app_rules.py` | Foreground-app-specific behaviour overrides | ruamel.yaml |
-| **Text Post-Process** | `text_postprocess.py` | Inline formatting + optional Ollama polish | urllib |
+| **Text Post-Process** | `text_postprocess.py` | Inline formatting, smart formatting, voice editing, corrections + optional Ollama polish | urllib |
+| **Corrections** | `corrections.py` | Persist post-transcription replacements (history "Fix this everywhere") | ruamel.yaml |
+| **System Audio** | `system_audio.py` | `--transcribe-system` loopback capture (experimental, opt-in) | soundcard |
 | **Streaming** | `streaming_manager.py` + `streaming_recognizer.py` | Real-time partial transcription (experimental) | sherpa-onnx |
 | **Noise Suppression** | `noise_suppression.py` | Optional spectral-gating noise reduction | noisereduce |
 | **Stats** | `stats.py` | Usage stats, streaks, daily summary | json |
