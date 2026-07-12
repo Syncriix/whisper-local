@@ -587,7 +587,12 @@ class InstanceManagerNoConsoleTests(unittest.TestCase):
         import io
         import contextlib
         import unittest.mock as mock
-        from whisper_key import instance_manager
+        # instance_manager pulls `.platform`, which eagerly imports the OS backend
+        # (win32api / AppKit) — absent in the lean CI env, so skip there.
+        try:
+            from whisper_key import instance_manager
+        except Exception:
+            self.skipTest("instance_manager not importable on this platform")
         buf = io.StringIO()
         # Force "console attached" so the blocking MessageBox path can never run
         # (this process may itself be headless).
