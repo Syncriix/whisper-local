@@ -1,3 +1,11 @@
+# text_postprocess.py
+# The text-shaping stage between Whisper and delivery. Runs an ordered pipeline
+# over the raw transcript: spoken editing commands ("scratch that") → inline
+# voice formatting (say "comma") → deterministic smart formatting (times/emails/
+# URLs) → user corrections → filler/casing/punctuation tidying → optional Ollama
+# polish. Every stage is opt-in via the `postprocess` config section and pure
+# except the final Ollama call, so output stays predictable and fully offline.
+
 import json
 import logging
 import re
@@ -45,16 +53,18 @@ def postprocess(text: str, config: dict) -> str:
 
     # Deterministic, offline symbol formatting (times / emails / URLs). Each
     # sub-toggle is off by default; only run the pass if at least one is on.
-    smart_cfg = config.get('smart_formatting') or {}
-    if any(smart_cfg.get(k) for k in ('times', 'emails', 'urls')):
+    # The isinstance guard matters: a hand-edited `smart_formatting: true`
+    # instead of a mapping must not take down the whole transcription.
+    smart_cfg = config.get('smart_formatting')
+    if isinstance(smart_cfg, dict) and any(smart_cfg.get(k) for k in ('times', 'emails', 'urls')):
         text = _apply_smart_formatting(text, smart_cfg)
 
     # User corrections (misrecognition fixes, e.g. "see translate two" →
     # "CTranslate2"). Applied late so they win over formatting, but before the
     # Ollama pass so the LLM sees already-corrected text. This is the backing
     # store for the history window's one-click "always fix this".
-    replacements = config.get('replacements') or []
-    if replacements:
+    replacements = config.get('replacements')
+    if isinstance(replacements, (list, tuple)) and replacements:
         text = _apply_replacements(text, replacements)
 
     if config.get('strip_filler_words', False):
@@ -69,8 +79,10 @@ def postprocess(text: str, config: dict) -> str:
     if config.get('ensure_punctuation', False):
         text = _ensure_punctuation(text)
 
-    ollama_cfg = config.get('ollama') or {}
-    if ollama_cfg.get('enabled', False):
+    # Same defensive shape check as smart_formatting above — a malformed
+    # `ollama:` value must degrade to "no polish", not raise mid-dictation.
+    ollama_cfg = config.get('ollama')
+    if isinstance(ollama_cfg, dict) and ollama_cfg.get('enabled', False):
         polished = _ollama_polish(text, ollama_cfg)
         if polished:
             text = polished
@@ -114,6 +126,39 @@ def _resolve_inline_replacements(config: dict):
     return entries
 
 
+# Characters a cue word "absorbs" from either side. Newline is deliberately
+# excluded so "new paragraph"/"new line" breaks survive a neighbouring cue.
+_ABSORB_CHARS = ' \t,.'
+
+
+# Replace each cue match together with the punctuation/whitespace hugging it.
+#
+# Written as find-then-expand rather than wrapping the pattern in `[ \t,.]*…`
+# runs. That regex form is O(n²): once an earlier cue has been swapped for ", "
+# the text is largely punctuation, and the engine re-scans a long leading run
+# from every start position only to fail (measured ~6.5 s on a long dictation).
+# Here `finditer` locates the cue in one linear pass and each side is expanded
+# over a run that no other match can revisit, so the whole pass is O(n).
+def _absorb_sub(pattern: str, replacement: str, text: str) -> str:
+    pieces = []
+    cursor = 0
+    limit = len(text)
+    for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+        if match.start() < cursor:
+            continue  # inside a region a previous match already absorbed
+        start = match.start()
+        while start > cursor and text[start - 1] in _ABSORB_CHARS:
+            start -= 1
+        end = match.end()
+        while end < limit and text[end] in _ABSORB_CHARS:
+            end += 1
+        pieces.append(text[cursor:start])
+        pieces.append(replacement)  # inserted literally — never a regex template
+        cursor = end
+    pieces.append(text[cursor:])
+    return ''.join(pieces)
+
+
 def _apply_inline_formatting(text: str, config: dict = None) -> str:
     cfg = config or {}
     # When you SPEAK a cue word, Whisper also inserts its own punctuation around it
@@ -123,12 +168,12 @@ def _apply_inline_formatting(text: str, config: dict = None) -> str:
     # spacing wins — so define replacements like ", " or " → ". Off by default.
     absorb = cfg.get('inline_formatting_absorb_punctuation', False)
     for pattern, replacement in _resolve_inline_replacements(cfg):
-        # Absorb only spaces/tabs/commas/periods around the cue — NOT newlines, so
-        # "new paragraph"/"new line" (\n) breaks survive a following cue's absorb.
-        effective = r'[ \t,.]*(?:' + pattern + r')[ \t,.]*' if absorb else pattern
-        # Literal replacement via a function repl: avoids re interpreting \1, \g<>,
-        # or stray backslashes in user-provided replacement strings.
-        text = re.sub(effective, lambda _m, r=replacement: r, text, flags=re.IGNORECASE)
+        if absorb:
+            text = _absorb_sub(pattern, replacement, text)
+        else:
+            # Literal replacement via a function repl: avoids re interpreting \1,
+            # \g<>, or stray backslashes in user-provided replacement strings.
+            text = re.sub(pattern, lambda _m, r=replacement: r, text, flags=re.IGNORECASE)
     text = re.sub(r' +([.,!?:;])', r'\1', text)
     text = re.sub(r'\(\s+', '(', text)
     text = re.sub(r'\s+\)', ')', text)
@@ -141,25 +186,43 @@ def _apply_inline_formatting(text: str, config: dict = None) -> str:
 # =============================================================================
 
 # "scratch that" / "delete that" / "strike that" — Wispr-style self-correction.
-# Removes the command AND the clause it follows (back to the previous sentence
-# terminator or newline), so "book the flight, scratch that, cancel it" →
-# "cancel it". The char class stops at .!?\n, so it never eats across a prior
-# sentence you meant to keep. A trailing command with nothing before it just
-# disappears. Case-insensitive; a following comma/period artifact is absorbed.
+# Matches ONLY the command itself. Deliberately no leading `[^.!?\n]*?` clause
+# scan: a lazy prefix like that makes re expand it one character at a time from
+# every start position, which is O(n²) and froze the pipeline for ~7 s on a long
+# dictation (measured). The clause is found instead by a linear backward search
+# in _apply_voice_editing.
 # Trailing class is [ \t,.]* (NOT \s*): it must not eat the newline after the
-# command, or "first scratch that\nsecond" would pull "second" up onto the first
-# line — the leading scan already stops at \n, so the trailing side must too.
-_VOICE_EDIT_SCRATCH = re.compile(
-    r'[^.!?\n]*?\b(?:scratch|delete|strike)\s+that\b[ \t,.]*',
+# command, or "first scratch that\nsecond" would pull "second" onto the first line.
+_VOICE_EDIT_CMD = re.compile(
+    r'\b(?:scratch|delete|strike)\s+that\b[ \t,.]*',
     flags=re.IGNORECASE,
 )
 
+# Sentence terminators that bound how far back a "scratch that" erases.
+_CLAUSE_BOUNDARIES = ('.', '!', '?', '\n')
+
 
 def _apply_voice_editing(text: str) -> str:
-    # Replace the removed clause+command with a single space (not nothing), so the
-    # separator after a preceding sentence survives ("flight. scratch that go" →
-    # "flight. go", not "flight.go"). Scratching the entire utterance yields "".
-    cleaned = _VOICE_EDIT_SCRATCH.sub(' ', text)
+    # For each command, erase back to the start of the clause it belongs to (just
+    # after the previous terminator), never past the end of an earlier deletion.
+    # Each backward search covers a disjoint span, so the whole pass is O(n).
+    pieces = []
+    cursor = 0
+    for match in _VOICE_EDIT_CMD.finditer(text):
+        if match.start() < cursor:
+            continue  # already inside a region an earlier command removed
+        segment = text[cursor:match.start()]
+        last_boundary = max(segment.rfind(c) for c in _CLAUSE_BOUNDARIES)
+        keep_until = cursor + last_boundary + 1 if last_boundary >= 0 else cursor
+        pieces.append(text[cursor:keep_until])
+        # Emit a single space in place of the removed clause+command, so the
+        # separator after a preceding sentence survives ("flight. scratch that go"
+        # → "flight. go", not "flight.go").
+        pieces.append(' ')
+        cursor = match.end()
+    pieces.append(text[cursor:])
+
+    cleaned = ''.join(pieces)
     cleaned = re.sub(r' {2,}', ' ', cleaned)
     cleaned = re.sub(r'[ \t]+\n', '\n', cleaned)         # no trailing space before a break
     cleaned = re.sub(r'\s+([.,!?;:])', r'\1', cleaned)   # no space before punctuation

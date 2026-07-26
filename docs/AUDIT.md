@@ -1,10 +1,60 @@
 # Whisper Local — Code Audit & Improvement Backlog
 
-**Last updated:** 2026-07-11
+**Last updated:** 2026-07-12
 **Audited versions:** 0.10.0 (Round 1, below) and 0.11.x (Round 2, next section)
 **Method:** Parallel subsystem reviews + manual verification of every finding before fixing.
 
 > This is a living document. Each issue has a stable ID (e.g. `SRV-1`) so commits and PRs can reference it. When you fix one, change its **Status** to `FIXED (<commit>)` rather than deleting it, so history stays readable.
+
+---
+
+## Round 6 (0.16.1) — performance, robustness & documentation sweep (2026-07-12)
+
+Whole-repo pass driven by measurement rather than reading alone: static analysis
+(pyflakes) over all 73 modules, an import check of every module, a functional
+integration sweep through the *shipped* defaults, adversarial/pathological
+inputs, and profiling of the post-processing pipeline.
+
+**Fixed:**
+- **R6-1 (High, user-visible hang)** Post-processing was **O(n²)** in two
+  independent places, so a long transcript froze the app for seconds:
+  `_apply_voice_editing`'s lazy leading scan (`[^.!?\n]*?…`) re-expanded from
+  every start position, and the absorb pass re-scanned a long leading
+  `[ \t,.]*` run from every position once earlier cues had turned the text
+  mostly-punctuation. Measured on an 18k-char transcript: voice editing 6.61 s,
+  absorb 6.46 s (11.9 s at 24k). Both rewritten as linear find-then-expand:
+  **0.004 s and 0.009 s** respectively. Behaviour proven identical by a
+  4,000-case randomised differential test against the old implementation;
+  a performance regression test now guards the complexity.
+- **R6-2 (Med, crash on bad config)** A scalar where a mapping/list belongs
+  (`smart_formatting: true`, a stringy `ollama:` or `replacements:`) raised
+  `AttributeError` mid-pipeline and lost the dictation. All three sections are
+  now shape-checked and degrade to "feature off". +test.
+- **R6-3 (Med, environment-dependent test)** `test_capture_without_soundcard_
+  returns_none` only passed on machines *without* the optional loopback extra —
+  it popped `soundcard` from `sys.modules`, which let a real install be
+  re-imported. Now binds the name to `None` (making the import raise) and
+  restores exactly, so the sentinel can't leak into later tests.
+- **R6-4 (Low)** `mutex_handle` in `main()` looked like dead code to linters but
+  holds the single-instance lock open; documented with an explicit warning and
+  `# noqa` so nobody "cleans it up". Removed two redundant local `Path`
+  re-imports shadowing the module-level import in `system_tray`.
+
+**Documentation (CLAUDE.md compliance):**
+- 46 of 73 modules had **no header comment**, against the project rule of a 2-4
+  line header on every module — including `state_manager`'s neighbours,
+  `config_manager`, `system_tray`, `text_postprocess`, and the entire platform
+  layer. All 73 now have one; platform headers also name their opposite-OS
+  mirror, making the mirrored-API contract self-evident.
+- Intent comments added to the largest previously-bare functions
+  (`_transcription_pipeline`, `_create_menu`, `_setup_hotkeys`,
+  `transcribe_audio`, `transforms.apply`, `show_stats`, `_parse_pe_imports`,
+  and the Tk window bodies).
+- `DocumentationStandardTests` enforces the header rule in CI so it can't decay.
+
+**Verified clean:** every module imports; 132 tests pass; no ReDoS or crash on
+pathological inputs (20k-char, punctuation-only, Unicode/Polish, regex
+metacharacters) — worst case now 0.033 s.
 
 ---
 

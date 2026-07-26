@@ -1,3 +1,8 @@
+# streaming_recognizer.py
+# Wraps a sherpa-onnx streaming ASR model to produce partial transcripts while
+# the user is still speaking. Powers the overlay's live preview and the opt-in
+# type-as-you-speak delivery. Separate from whisper_engine because it optimises
+# for latency (small model, incremental decode) rather than final accuracy.
 import logging
 import os
 import wave

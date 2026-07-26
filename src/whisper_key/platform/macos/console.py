@@ -1,3 +1,7 @@
+# platform/macos/console.py
+# No-op stubs: macOS has no console window to own or hide (the app is launched
+# from a terminal or as a bundle), but the platform contract requires the API.
+# Windows mirror: platform/windows/console.py (the real implementation).
 def setup():
     pass
 

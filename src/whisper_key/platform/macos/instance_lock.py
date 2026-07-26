@@ -1,3 +1,7 @@
+# platform/macos/instance_lock.py
+# Single-instance lock via an fcntl flock on a file in the config directory. The
+# file object must stay referenced for the lifetime of the process.
+# Windows mirror: platform/windows/instance_lock.py (named mutex).
 import fcntl
 import os
 from pathlib import Path

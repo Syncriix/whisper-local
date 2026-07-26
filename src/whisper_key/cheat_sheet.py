@@ -38,6 +38,9 @@ def show_cheat_sheet(config_manager=None, transforms_manager=None):
     ).start()
 
 
+# Window body, run on a daemon thread with its own Tk root (same one-root-per-
+# window pattern as the other windows). Reads the LIVE config so the sheet always
+# reflects the user's current bindings rather than the shipped defaults.
 def _run(config_manager, transforms_manager):
     global _current_root
     try:

@@ -1,3 +1,11 @@
+# config_manager.py
+# Owns application settings. Layers the shipped `config.defaults.yaml` under the
+# user's `user_settings.yaml`, which stores ONLY overrides — so upgrades pick up
+# new defaults automatically and the user's file stays small and readable.
+# Round-trip YAML (ruamel) preserves their comments on write. The `postprocess`
+# section additionally hot-reloads on file mtime change, so formatting tweaks
+# apply on the next dictation without restarting the app.
+
 import os
 import copy
 import logging

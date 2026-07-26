@@ -1,3 +1,6 @@
+# platform/macos/paths.py
+# Resolves the per-user config directory (~/.whisperkey).
+# Windows mirror: platform/windows/paths.py (%APPDATA%\whisperkey).
 import subprocess
 from pathlib import Path
 

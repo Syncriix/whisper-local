@@ -1,3 +1,8 @@
+# audit_log.py
+# Opt-in append-only record of what was delivered where, for users who need a
+# paper trail (regulated or shared machines). Off by default and separate from
+# stats/transcript logs; the caller passes `enabled` so the feature flag lives
+# with the config rather than being re-read here.
 import datetime
 import logging
 from pathlib import Path

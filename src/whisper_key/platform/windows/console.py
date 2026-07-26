@@ -1,3 +1,9 @@
+# platform/windows/console.py
+# Show/hide/own the console window. The pyapp .exe launches with a console the
+# user didn't ask for, so the app hides it and treats the tray as the real UI;
+# these helpers also detect whether we own the window (vs being run from an
+# existing terminal, where hiding it would be rude).
+# macOS mirror: platform/macos/console.py (no-op stubs).
 import ctypes
 import ctypes.wintypes as wintypes
 import os

@@ -1,3 +1,7 @@
+# platform/macos/hotkeys.py
+# Global hotkey detection using NSEvent taps, which require Accessibility
+# permission (see permissions.py) and must run on the main thread's run loop.
+# Windows mirror: platform/windows/hotkeys.py.
 import logging
 import threading
 from dataclasses import dataclass, field

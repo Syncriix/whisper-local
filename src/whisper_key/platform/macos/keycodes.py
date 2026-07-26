@@ -1,3 +1,6 @@
+# platform/macos/keycodes.py
+# Lookup table mapping key names to macOS virtual key codes, used by
+# keyboard.py to build Quartz key events.
 KEY_CODES = {
     'a': 0, 'b': 11, 'c': 8, 'd': 2, 'e': 14, 'f': 3, 'g': 5, 'h': 4,
     'i': 34, 'j': 38, 'k': 40, 'l': 37, 'm': 46, 'n': 45, 'o': 31, 'p': 35,

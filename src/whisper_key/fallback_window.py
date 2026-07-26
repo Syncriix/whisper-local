@@ -1,3 +1,9 @@
+# fallback_window.py
+# Safety net for dictation with nowhere to go. When no text field is focused,
+# auto-paste would silently drop the transcript — instead it appears here in a
+# small window, pre-selected and already on the clipboard, so the user never
+# loses what they just said. Runs its own Tk root on a daemon thread.
+
 import logging
 import threading
 from typing import Optional
@@ -52,6 +58,9 @@ class FallbackWindow:
         )
         thread.start()
 
+    # Window body, run on a daemon thread with its own Tk root. The transcript is
+    # inserted pre-selected so a single Ctrl+C (or the Copy button) rescues it —
+    # this window only ever appears when delivery already had nowhere to go.
     def _run_window(self, transcript: str, reason: str):
         try:
             import tkinter as tk

@@ -34,6 +34,10 @@ class HotkeyListener:
 
         self.start_listening()
 
+    # Builds the binding table handed to the platform backend. Push-to-talk needs
+    # both press AND release callbacks (hold to record); toggle mode needs only
+    # press. Optional hotkeys (rephrase / command / cancel / pause) are registered
+    # only when configured, so an unset key never occupies a combination.
     def _setup_hotkeys(self):
         hotkey_configs = []
 

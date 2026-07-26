@@ -1,3 +1,8 @@
+# streaming_manager.py
+# Lifecycle owner for the optional streaming recogniser: decides whether
+# streaming is available at all (model present, feature enabled), constructs
+# continuous recognisers, and feeds them audio chunks. Every method is safe to
+# call when streaming is disabled so callers need no feature checks.
 import logging
 import threading
 from typing import TYPE_CHECKING, Optional, Callable

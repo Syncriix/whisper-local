@@ -1,3 +1,8 @@
+# terminal_ui.py
+# Tiny console prompt helpers (ANSI colours + a single-keypress chooser) used by
+# the interactive first-run paths — GPU onboarding and the setup wizard. Reads a
+# raw keypress via the platform layer, so callers must not use it on a windowless
+# launch where there is no console to answer.
 from .platform import app
 
 BOLD_GREEN = "\x1b[1;32m"

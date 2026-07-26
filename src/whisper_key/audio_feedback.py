@@ -1,3 +1,8 @@
+# audio_feedback.py
+# Short confirmation sounds for recording start/stop/complete — the audible half
+# of the feedback the overlay provides visually, so the user knows a hotkey
+# registered without looking. Playback is fire-and-forget on a background thread
+# and any backend failure is swallowed: audio cues must never block dictation.
 import logging
 import os
 import platform

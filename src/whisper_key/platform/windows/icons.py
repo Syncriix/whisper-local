@@ -1,3 +1,6 @@
+# platform/windows/icons.py
+# Loads the tray icon images for each app state (idle/recording/processing).
+# macOS mirror: platform/macos/icons.py.
 from pathlib import Path
 from PIL import Image
 

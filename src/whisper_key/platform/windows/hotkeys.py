@@ -1,3 +1,7 @@
+# platform/windows/hotkeys.py
+# Global hotkey registration via the `global-hotkeys` library, including the key
+# name mapping from this app's config syntax to the library's expected format.
+# macOS mirror: platform/macos/hotkeys.py (NSEvent taps).
 from global_hotkeys import register_hotkeys, start_checking_hotkeys, stop_checking_hotkeys
 
 # global-hotkeys library expects: 'control + window + shift' format

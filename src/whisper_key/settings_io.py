@@ -1,3 +1,8 @@
+# settings_io.py
+# `--export-settings` / `--import-settings`: copies user_settings.yaml plus the
+# commands/transforms/app-rules files to or from a directory, so a setup can be
+# backed up or moved to another machine. Imports timestamp-back-up whatever they
+# overwrite rather than destroying the current configuration.
 import datetime
 import shutil
 from pathlib import Path

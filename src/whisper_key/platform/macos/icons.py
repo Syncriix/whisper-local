@@ -1,3 +1,6 @@
+# platform/macos/icons.py
+# Loads the menu-bar icon images for each app state (idle/recording/processing).
+# Windows mirror: platform/windows/icons.py.
 from pathlib import Path
 from PIL import Image
 

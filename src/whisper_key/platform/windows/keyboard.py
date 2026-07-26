@@ -1,3 +1,8 @@
+# platform/windows/keyboard.py
+# Synthesises keystrokes for auto-paste and auto-send via the Win32 SendInput
+# API. SendInput is used rather than higher-level helpers because it is the only
+# approach that reliably reaches elevated windows and games.
+# macOS mirror: platform/macos/keyboard.py (Quartz events).
 import ctypes
 import ctypes.wintypes as wintypes
 

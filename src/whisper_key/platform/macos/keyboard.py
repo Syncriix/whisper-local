@@ -1,3 +1,7 @@
+# platform/macos/keyboard.py
+# Synthesises keystrokes for auto-paste/auto-send via Quartz CGEvent, using the
+# virtual key codes in keycodes.py.
+# Windows mirror: platform/windows/keyboard.py (SendInput).
 import logging
 import time
 

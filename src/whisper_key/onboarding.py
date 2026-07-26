@@ -1,3 +1,10 @@
+# onboarding.py
+# First-launch GPU setup. Detects an NVIDIA/AMD card, then offers to install the
+# matching CUDA/ROCm packages so users get GPU speed without hunting through
+# docs. Also the recovery path when a configured GPU fails at runtime: it falls
+# the config back to CPU rather than leaving the app in a broken state. All
+# prompts are interactive, so callers must skip this on windowless launches.
+
 import subprocess
 import sys
 import webbrowser

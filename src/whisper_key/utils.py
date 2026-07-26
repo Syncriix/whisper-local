@@ -1,3 +1,8 @@
+# utils.py
+# Small cross-cutting helpers shared by nearly every module: locating the user's
+# config directory, resolving bundled asset paths (source checkout vs installed
+# wheel vs frozen .exe), hotkey string parsing/prettifying, version lookup, and
+# the OptionalComponent shim used for gracefully-absent dependencies.
 import os
 import subprocess
 import sys

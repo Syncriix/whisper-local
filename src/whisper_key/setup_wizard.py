@@ -1,3 +1,9 @@
+# setup_wizard.py
+# `--setup`: a short interactive first-run questionnaire (model, recording mode,
+# microphone) that writes user_settings.yaml, so a new user never has to open a
+# YAML file to get going. The model recommendation is derived from detected
+# hardware rather than asking the user to guess.
+
 import os
 import platform
 import shutil

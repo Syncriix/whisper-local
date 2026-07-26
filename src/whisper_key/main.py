@@ -456,7 +456,10 @@ def main():
     app.setup()
 
     instance_name = "WhisperKeyLocal_test" if args.test else "WhisperKeyLocal"
-    mutex_handle = guard_against_multiple_instances(instance_name)
+    # Keep this handle referenced for the whole process lifetime. It looks unused
+    # (linters flag it), but dropping it would close the mutex/flock and let a
+    # second instance start alongside this one. Do NOT "clean up" this variable.
+    mutex_handle = guard_against_multiple_instances(instance_name)  # noqa: F841
 
     mode_label = " [TEST]" if args.test else ""
     print(f"Starting Whisper Local [{get_version()}]{mode_label}...")

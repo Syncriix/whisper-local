@@ -1,3 +1,10 @@
+# level_overlay.py
+# Small always-on-top pill near the screen edge that proves the app is hearing
+# you: a live mic level bar, the streaming transcript preview, and success or
+# failure flashes at the end of a recording. Failures show their reason here
+# (not just a tray balloon) because Windows focus-assist silently swallows
+# balloons. All Tk work is marshalled onto the overlay's own thread via _call().
+
 import logging
 import platform
 import threading

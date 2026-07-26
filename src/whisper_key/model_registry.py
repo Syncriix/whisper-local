@@ -1,3 +1,9 @@
+# model_registry.py
+# Single source of truth for which Whisper/streaming models exist, where each one
+# resolves to (a HuggingFace repo id or a local directory), and whether it is
+# already cached on disk. The cache check is what lets the app tell the user
+# "downloading, first run only" instead of appearing to hang on first launch.
+
 import logging
 import os
 from typing import Optional

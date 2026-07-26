@@ -1,3 +1,9 @@
+# app_rules.py
+# Per-application behaviour overrides driven by `app_rules.yaml`: match the
+# foreground app and adjust delivery (auto-send, copy-only, suppress entirely)
+# and formatting (verbatim in a code editor, full sentences in email). The
+# foreground-detection import is deliberately lazy so this module stays
+# importable in lean/test environments without the platform backend installed.
 import logging
 import shutil
 from pathlib import Path

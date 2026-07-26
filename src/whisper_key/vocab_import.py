@@ -1,3 +1,8 @@
+# vocab_import.py
+# `--import-vocab`: scans a folder of the user's own documents, ranks the terms
+# that look like domain jargon or proper nouns, and merges the top hits into
+# whisper.hotwords. A bulk shortcut to the same accuracy win the dictionary and
+# history-mining paths provide one word at a time.
 import logging
 import re
 import sys

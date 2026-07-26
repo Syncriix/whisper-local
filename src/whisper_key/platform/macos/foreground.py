@@ -1,3 +1,6 @@
+# platform/macos/foreground.py
+# Identifies the frontmost application for per-app rules.
+# Windows mirror: platform/windows/foreground.py.
 import logging
 
 logger = logging.getLogger(__name__)

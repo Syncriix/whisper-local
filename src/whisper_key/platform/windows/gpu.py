@@ -1,3 +1,9 @@
+# platform/windows/gpu.py
+# Windows GPU probe: identifies NVIDIA/AMD hardware and, crucially, verifies that
+# CTranslate2 can actually load its CUDA/cuBLAS DLLs — a card being present is
+# not the same as the runtime working. It parses the PE import table to report
+# exactly which DLL is missing, turning an opaque crash into an actionable
+# message. macOS mirror: platform/macos/gpu.py (a no-op stub).
 import ctypes
 import glob
 import importlib.metadata
@@ -227,6 +233,12 @@ def _read_pe_imports(dll_path: pathlib.Path) -> list[str]:
         return []
 
 
+# Reads a DLL's import table straight from the PE headers to learn which other
+# DLLs it needs. We do this by hand — rather than just trying to load the library
+# — so that when CTranslate2's CUDA support fails we can name the exact missing
+# dependency (e.g. cublas64_12.dll) instead of surfacing a generic load error.
+# Walks: DOS header e_lfanew (0x3C) → PE signature → optional header → import
+# directory RVA → section table to map that RVA to a file offset.
 def _parse_pe_imports(dll_path: pathlib.Path) -> list[str]:
     with open(dll_path, 'rb') as f:
         f.seek(0x3C)

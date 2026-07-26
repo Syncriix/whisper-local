@@ -1,3 +1,8 @@
+# platform/macos/app.py
+# macOS app lifecycle: runs an NSApplication as an accessory (no Dock icon) and
+# pumps its run loop, which Cocoa requires on the MAIN thread — the reason the
+# platform layer exposes thread requirements at all.
+# Windows mirror: platform/windows/app.py (no such constraint).
 from AppKit import NSApplication, NSApplicationActivationPolicyAccessory, NSEventMaskAny, NSDefaultRunLoopMode
 from Foundation import NSDate, NSObject
 

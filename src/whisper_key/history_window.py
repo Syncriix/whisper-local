@@ -26,6 +26,10 @@ def show_history():
         except Exception:
             pass
 
+    # Builds and owns the window. Runs as the body of a daemon thread with its
+    # OWN Tk root — this app has no single Tk main loop, so each window is
+    # self-contained (see docs/AUDIT.md on the multi-root decision). Everything
+    # is defined inside so the widgets and the `visible` list share one closure.
     def _run():
         global _instance
         try:

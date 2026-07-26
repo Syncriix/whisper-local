@@ -46,6 +46,10 @@ def show_welcome_window(on_close=None, hotkey_label: str = "Ctrl+Win"):
     ).start()
 
 
+# Window body, run on a daemon thread with its own Tk root. Shown exactly once
+# (the caller gates on a marker file); `on_close` fires afterwards so first-run
+# follow-ups — such as the autostart prompt — happen only after the user has
+# actually seen and dismissed this.
 def _run_welcome(on_close, hotkey_label):
     try:
         import tkinter as tk

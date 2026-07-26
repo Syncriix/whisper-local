@@ -1,3 +1,11 @@
+# whisper_engine.py
+# The default speech-recognition backend, wrapping faster-whisper (CTranslate2).
+# Loads the model once at startup and warms it with a dummy transcription so the
+# user's first real recording isn't slowed by lazy initialisation. Model switches
+# happen on a background thread with progress callbacks so the UI stays live.
+# `whisper_engine_cpp.py` mirrors this class's API for the opt-in whisper.cpp
+# backend — keep the two signatures in sync.
+
 import logging
 import time
 import threading
@@ -175,6 +183,10 @@ class WhisperEngine:
         except Exception as e:
             self.logger.debug(f"Whisper warmup skipped: {e}")
 
+    # Mono float32 @ 16 kHz in, plain text out (None/'' when there's no speech).
+    # An optional VAD pre-check short-circuits silent clips so we don't pay for a
+    # full decode on an accidental hotkey press. Callers rely on this contract —
+    # whisper_engine_cpp and system_audio both feed it the same array shape.
     def transcribe_audio(self,
                          audio_data: np.ndarray) -> Optional[str]:
         if self.model is None:

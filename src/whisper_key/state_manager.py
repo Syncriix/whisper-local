@@ -449,6 +449,14 @@ class StateManager:
             self.logger.debug(f"Selection grab failed: {e}")
         return ''
     
+    # The heart of the app: everything between "user released the hotkey" and
+    # "text is in their editor". Runs on a worker thread so the hotkey listener
+    # never blocks. Order matters — transcribe, then branch by mode (command /
+    # rephrase / dictation), then apply app rules + post-processing, then choose a
+    # delivery route (suppressed, fallback window, or paste at cursor), and only
+    # record stats/history once delivery actually succeeded. Every early return
+    # is a legitimate "nothing to deliver" case and must still clear state via
+    # the finally block.
     def _transcription_pipeline(self, audio_data, use_auto_enter: bool = False):
         try:
             with self._state_lock:

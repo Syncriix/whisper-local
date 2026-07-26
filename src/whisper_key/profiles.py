@@ -1,3 +1,8 @@
+# profiles.py
+# Named presets (Dictation / Chat / Code / Notes / Translate) that flip several
+# settings at once from the tray, so switching context doesn't mean editing YAML.
+# A profile applies a small patch over current settings rather than replacing
+# them, leaving unrelated user choices untouched.
 from pathlib import Path
 from typing import Dict, List, Optional
 

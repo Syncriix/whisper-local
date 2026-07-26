@@ -4,6 +4,36 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
 
 ## [Unreleased]
 
+## [0.16.1]
+
+### Fixed
+- **Long dictations no longer freeze the app.** Post-processing was quadratic in
+  two places: the "scratch that" scan and the punctuation-absorb pass. A ~3,000
+  word transcript took **6-13 seconds** to process — long enough to look like a
+  hang, and increasingly likely with continuous dictation and system-audio
+  capture. Both are now linear: the same transcript processes in **under 0.03 s**
+  (~700x faster for absorb, ~1650x for voice editing). Behaviour is byte-for-byte
+  identical — verified by a 4,000-case randomised differential test against the
+  previous implementation, plus a performance regression test.
+- **A malformed settings file can no longer break transcription.** A scalar where
+  a mapping belongs (e.g. `smart_formatting: true` instead of the sub-toggles)
+  raised mid-pipeline and lost the dictation; malformed `smart_formatting`,
+  `ollama`, and `replacements` sections now degrade to "feature off".
+- **`--transcribe-system` test no longer depends on the machine's setup.** The
+  soundcard-absent test passed only where the optional extra wasn't installed and
+  failed everywhere it was; it now simulates absence properly.
+
+### Documentation
+- **Every module now opens with a header comment explaining its purpose** — 46 of
+  73 modules were missing one, including core files (`state_manager`'s pipeline,
+  `config_manager`, `system_tray`, `text_postprocess`) and the whole platform
+  layer, where each header now also names its counterpart on the other OS.
+- Intent comments added to the largest previously-bare functions (the
+  transcription pipeline, tray menu construction, hotkey setup, PE import
+  parsing, and the Tk window bodies).
+- A test now enforces the module-header rule from CLAUDE.md, so the standard
+  can't silently decay as files are added.
+
 ## [0.16.0]
 
 ### Added

@@ -1,3 +1,10 @@
+# dictionary.py
+# Manages `whisper.hotwords` — the list of names and jargon Whisper is biased
+# toward, which is the cheapest way to fix recurring misrecognitions. Provides
+# CLI add/remove/list, a small Tk add-word dialog, and history mining that
+# suggests hotwords from words the user actually dictates. Writes
+# user_settings.yaml directly (round-trip YAML) so it works without a running app.
+
 import logging
 import threading
 from pathlib import Path
@@ -152,6 +159,10 @@ def show_dictionary() -> int:
     return 0
 
 
+# Opens the small "add a hotword" dialog (tray item / CLI). Singleton-guarded:
+# re-invoking raises the existing window instead of stacking another Tk root and
+# thread. `on_added` lets the caller refresh live state (e.g. the running engine's
+# hotword list) once a word is actually saved.
 def show_add_word_dialog(on_added=None):
     global _dialog_root
     with _dialog_lock:

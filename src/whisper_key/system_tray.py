@@ -1,3 +1,11 @@
+# system_tray.py
+# The always-visible control surface: tray icon, balloon notifications, and the
+# right-click menu that exposes almost every feature (profiles, language, model,
+# transforms, recent transcripts, diagnostics, restart/exit). The icon doubles as
+# a state indicator — it swaps art for idle/recording/processing so the user can
+# see what the app is doing at a glance. pystray/Pillow are imported defensively
+# so a machine without a usable tray still runs headless instead of crashing.
+
 import logging
 import os
 import signal
@@ -223,6 +231,12 @@ class SystemTray:
             items.append(pystray.MenuItem(label, make_recopy(i)))
         return items
 
+    # Rebuilt from scratch on every refresh rather than mutated in place, because
+    # pystray menus are immutable once shown — this is how checkmarks, the model
+    # list, and recent transcripts stay current. Items are appended in a
+    # deliberate order (state → profiles/language/model → files → diagnostics →
+    # restart/exit); `None` entries are filtered out at the end so a disabled
+    # feature simply omits its row.
     def _create_menu(self):
         try:
             app_state = self.state_manager.get_application_state()
@@ -532,7 +546,6 @@ class SystemTray:
             try:
                 from .bundle_logs import bundle_logs
                 import datetime
-                from pathlib import Path
                 stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
                 output = str(Path.home() / 'Desktop' / f'whisper-local-bundle-{stamp}.zip')
                 bundle_logs(output)
@@ -551,7 +564,6 @@ class SystemTray:
 
     def _open_transforms_file(self, icon=None, item=None):
         try:
-            from pathlib import Path
             from .utils import get_user_app_data_path
             path = Path(get_user_app_data_path()) / 'transforms.yaml'
             open_file(str(path))

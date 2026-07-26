@@ -1,3 +1,7 @@
+# platform/windows/foreground.py
+# Identifies the focused window's executable and title, which per-app rules use
+# to decide delivery and formatting behaviour.
+# macOS mirror: platform/macos/foreground.py.
 import ctypes
 import ctypes.wintypes as wt
 import logging

@@ -1,3 +1,7 @@
+# platform/windows/instance_lock.py
+# Named-mutex single-instance lock. The handle must stay referenced for the
+# process's lifetime — releasing it frees the lock.
+# macOS mirror: platform/macos/instance_lock.py (fcntl flock).
 import win32api
 import win32event
 

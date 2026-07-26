@@ -24,6 +24,36 @@ class HotkeyParsingTests(unittest.TestCase):
         self.assertEqual(beautify_hotkey(""), "")
 
 
+class DocumentationStandardTests(unittest.TestCase):
+    # CLAUDE.md mandates that every module opens with a 2-4 line header comment
+    # describing its purpose. Enforced here so the standard can't silently decay
+    # as new modules are added — a new file without a header fails the suite.
+    def test_every_module_has_a_header_comment(self):
+        pkg = ROOT / "src" / "whisper_key"
+        missing = []
+        for path in sorted(pkg.rglob("*.py")):
+            if "__pycache__" in path.as_posix() or path.name == "__init__.py":
+                continue
+            header_lines = 0
+            for line in path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    if header_lines:
+                        break
+                    continue  # tolerate blank lines before the header starts
+                if stripped.startswith("#"):
+                    header_lines += 1
+                else:
+                    break  # hit code — header (if any) is over
+            if header_lines < 2:
+                missing.append(f"{path.relative_to(pkg).as_posix()} ({header_lines} line(s))")
+        self.assertEqual(
+            missing, [],
+            "Modules missing a 2+ line header comment (see CLAUDE.md):\n  "
+            + "\n  ".join(missing),
+        )
+
+
 class VersionMetadataTests(unittest.TestCase):
     def test_pyproject_has_local_name(self):
         import tomllib
@@ -318,6 +348,59 @@ class TextPostprocessTests(unittest.TestCase):
         self.assertEqual(postprocess("please scratch that itch", {'voice_editing': False}),
                          "please scratch that itch")
 
+    def test_malformed_config_sections_do_not_crash(self):
+        # A hand-edited user_settings.yaml can put a scalar where a mapping/list
+        # belongs. That's a config mistake, but it must never take down the
+        # transcription pipeline — degrade to "feature off" instead.
+        from whisper_key.text_postprocess import postprocess
+        for bad in (
+            {'smart_formatting': 'not-a-dict'},
+            {'smart_formatting': True},
+            {'ollama': 'not-a-dict'},
+            {'replacements': 'not-a-list'},
+            {'replacements': [None, 42, 'str', {'no_from_key': 1}]},
+            {'inline_formatting': True, 'inline_formatting_replacements': 'nope'},
+        ):
+            self.assertEqual(postprocess("some text here", bad), "some text here",
+                             f"malformed config mishandled: {bad}")
+
+    def test_long_transcript_postprocesses_quickly(self):
+        # Regression: both the absorb pass and voice editing used to be O(n^2)
+        # (a lazy leading scan / a re-scanned leading run), taking 6-13 s on a
+        # long dictation and appearing to freeze the app. Both are linear now;
+        # this budget is ~100x the measured time, so it only fires on a genuine
+        # complexity regression, not on slow CI hardware.
+        import time
+        from whisper_key.text_postprocess import postprocess
+        text = "comma " * 3000 + "scratch that " * 200 + "word " * 3000
+        cfg = {
+            'inline_formatting': True,
+            'inline_formatting_absorb_punctuation': True,
+            'voice_editing': True,
+            'smart_formatting': {'times': True, 'emails': True, 'urls': True},
+        }
+        started = time.perf_counter()
+        postprocess(text, cfg)
+        elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, 2.0,
+                        f"post-processing a {len(text)}-char transcript took {elapsed:.2f}s "
+                        "— suspect an O(n^2) regression in absorb or voice editing")
+
+    def test_absorb_equivalence_on_representative_inputs(self):
+        # The absorb pass was rewritten from a regex to find-then-expand; these
+        # pin the exact behaviour that rewrite had to preserve.
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'inline_formatting': True, 'inline_formatting_absorb_punctuation': True,
+               'inline_formatting_replacements': [{'phrase': 'comma', 'replacement': ', '},
+                                                  {'phrase': 'arrow', 'replacement': ' -> '}]}
+        self.assertEqual(postprocess("Hello, comma, world.", cfg), "Hello, world.")
+        self.assertEqual(postprocess("a arrow b", cfg), "a -> b")
+        # Two spoken cues in a row yield two symbols — matches the pre-rewrite
+        # behaviour exactly (verified by differential test against the old impl).
+        self.assertEqual(postprocess("x comma comma y", cfg), "x,, y")
+        self.assertEqual(postprocess("a,,, comma ,,, b", cfg), "a, b")
+        self.assertEqual(postprocess("no cues here", cfg), "no cues here")
+
     def test_voice_editing_preserves_line_break_after_command(self):
         # Regression: the trailing class must not eat the newline separating the
         # scratched clause from the next line.
@@ -519,7 +602,13 @@ class SystemAudioTests(unittest.TestCase):
     def test_capture_without_soundcard_returns_none(self):
         import io
         import contextlib
-        saved = sys.modules.pop('soundcard', None)
+        # Simulate soundcard being ABSENT even when it's actually installed:
+        # binding the name to None in sys.modules makes `import soundcard` raise
+        # ImportError (documented CPython behaviour). Merely popping it would let
+        # a real installed copy be re-imported, so this test would pass only on
+        # machines without the optional extra.
+        saved = sys.modules.get('soundcard')
+        sys.modules['soundcard'] = None
         try:
             from whisper_key import system_audio
             self.assertFalse(system_audio.is_available())
@@ -529,8 +618,13 @@ class SystemAudioTests(unittest.TestCase):
             self.assertIsNone(out)
             self.assertIn('loopback', buf.getvalue().lower())
         finally:
+            # Restore exactly: put back a real module, or REMOVE the None
+            # sentinel entirely — leaving it would break soundcard imports for
+            # every later test in this process.
             if saved is not None:
                 sys.modules['soundcard'] = saved
+            else:
+                sys.modules.pop('soundcard', None)
 
     def test_capture_with_mock_soundcard_returns_mono_float32(self):
         import types

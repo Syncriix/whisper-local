@@ -1,3 +1,10 @@
+# voice_commands.py
+# Turns a spoken phrase into an action: send a hotkey, type canned text, or run a
+# shell command, matched against user-defined triggers in `commands.yaml`
+# (hot-reloaded on change). Security matters here — this is the one path that can
+# execute arbitrary commands, so placeholders are expanded FIRST and the result
+# is shlex-quoted and risk-checked before anything runs.
+
 import logging
 import os
 import re

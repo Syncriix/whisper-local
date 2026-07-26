@@ -1,3 +1,11 @@
+# instance_manager.py
+# Enforces a single running copy. Uses a platform mutex/flock plus a pid file, and
+# deliberately prefers TAKEOVER over refusal: launching again SIGTERMs the old
+# instance and waits for the lock, which is what users expect when they
+# double-click the icon or hit tray → Restart. Only a genuinely unresponsive
+# holder produces a failure, and that message is surfaced via a dialog because
+# the .exe / autostart launch is windowless and would otherwise close silently.
+
 import logging
 import os
 import signal

@@ -1,3 +1,10 @@
+# stats.py
+# Usage metrics only — character counts, durations and the app dictated into,
+# appended to `stats.jsonl`. Deliberately stores NO transcript text (that lives
+# in transcript_log.py) so this file stays safe to share in a bug report. Backs
+# `--stats`, the once-a-day summary notification, and streak tracking. Writes are
+# lock-serialised because deliveries can land from several threads at once.
+
 import datetime
 import json
 import logging
@@ -172,6 +179,9 @@ def export_transcripts(dest: str) -> int:
     return 0
 
 
+# `--stats`: renders the whole journal as a console report — totals, time saved
+# (vs a typing-speed baseline), busiest apps, and the current/longest streak.
+# Returns a process exit code so main() can hand it straight to sys.exit().
 def show_stats() -> int:
     path = Path(get_user_app_data_path()) / STATS_FILE
     if not path.exists():

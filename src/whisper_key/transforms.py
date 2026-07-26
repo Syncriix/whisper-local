@@ -1,3 +1,10 @@
+# transforms.py
+# Wispr-style AI text transforms: take the current selection or clipboard and
+# rewrite it with a local Ollama model using a named prompt from
+# `transforms.yaml` (e.g. "make it formal", "summarise"). User-editable and
+# hot-reloaded on file change. Entirely local — no cloud call — and a no-op when
+# Ollama isn't running, so the feature degrades quietly rather than erroring.
+
 import logging
 import shutil
 import time
@@ -76,6 +83,11 @@ class TransformsManager:
                 return t
         return None
 
+    # Runs a named transform end-to-end: grab the user's selection (falling back
+    # to clipboard), send it to Ollama with that transform's prompt, and paste the
+    # rewrite back over the selection. Returns False rather than raising on any
+    # failure (unknown name, Ollama down, empty selection) so a missing optional
+    # dependency can never break the hotkey that triggered it.
     def apply(self, name: str) -> bool:
         self.reload_if_changed()
         transform = self.find(name)

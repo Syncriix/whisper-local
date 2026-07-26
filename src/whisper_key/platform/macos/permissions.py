@@ -1,3 +1,8 @@
+# platform/macos/permissions.py
+# Checks and requests the Accessibility / Input Monitoring grants that macOS
+# requires before global hotkeys or synthetic keystrokes work at all. Without
+# these the app appears silently broken, so failures must be explained clearly.
+# Windows mirror: platform/windows/permissions.py (always-granted stubs).
 import logging
 import os
 import signal
