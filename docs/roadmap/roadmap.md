@@ -6,8 +6,8 @@
 
 ## Bugs
 - **CUDA version forward-compatibility** - onboarding GPU detection doesn't recognize newer CUDA versions (e.g. CUDA 13.x), and CTranslate2 requires `cublas64_12.dll` which isn't present when only CUDA 13+ is installed. Workaround: manually copy CUDA 12 cuBLAS/cuDNN libs into CUDA 13 bin directory. Need to detect newer CUDA versions and guide users to install the required CUDA 12 compatibility libs
-- **Silent close when already running** - `.exe` users see the app instantly close with no message when another instance is already running
-- **No download progress shown** - HuggingFace model download doesn't display any state or progress to the user
+- ~~**Silent close when already running**~~ — FIXED in 0.16.0. A windowless launch has no console, so the "already running" message went nowhere; it now shows a dialog (`instance_manager._notify_no_console`). Note the normal path is *takeover*, not refusal — this message only appears when the existing instance is unresponsive.
+- **No download progress shown** - HuggingFace model download doesn't display any state or progress to the user. *Partially addressed in 0.16.0*: the first-run message now names the model and its approximate size, so the wait is expected. A real percentage bar still needs a `tqdm`/`hf_hub` callback hookup.
 - **Ctrl+C doesn't work after HuggingFace download** - shutdown signal not caught
 - **(macOS) System freezes on transcription** - needs verification
 - **(macOS) Stop hotkey requires double-press** - remapping stop hotkey to Ctrl requires pressing it twice to stop recording. Default Fn key also conflicts with macOS language keyboard toggle

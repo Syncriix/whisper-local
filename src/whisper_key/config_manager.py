@@ -240,7 +240,7 @@ class ConfigManager:
             if self.get_voice_commands_config().get('enabled', True):
                 print(f"   ✓ Voice commands: {display_dir}{os.sep}commands.yaml")
             else:
-                print(f"   ✓ Voice commands: disabled")
+                print("   ✓ Voice commands: disabled")
 
     def _display_path(self, path: str) -> str:
         if IS_MACOS:

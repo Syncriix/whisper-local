@@ -48,7 +48,7 @@ class ClipboardManager:
         hotkey_display = self.paste_hotkey.upper()
         if self.auto_paste:
             if self.delivery_method == "type":
-                print(f"   ✓ Auto-paste is ENABLED using direct text injection")
+                print("   ✓ Auto-paste is ENABLED using direct text injection")
             else:
                 print(f"   ✓ Auto-paste is ENABLED using clipboard paste ({hotkey_display})")
         else:
@@ -106,7 +106,7 @@ class ClipboardManager:
             keyboard.type_text(text)
             if self.type_also_copy_to_clipboard:
                 pyperclip.copy(text)
-            print(f"   ✓ Auto-pasted via text injection")
+            print("   ✓ Auto-pasted via text injection")
             return True
         except Exception as e:
             self.logger.error(f"Failed to inject text: {e}")
@@ -124,7 +124,7 @@ class ClipboardManager:
             time.sleep(self.paste_pre_paste_delay)
             keyboard.send_hotkey(*self.paste_keys)
 
-            print(f"   ✓ Auto-pasted via key simulation")
+            print("   ✓ Auto-pasted via key simulation")
 
             if original_content is not None:
                 time.sleep(self.paste_clipboard_restore_delay)

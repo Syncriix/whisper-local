@@ -234,7 +234,7 @@ class VoiceCommandManager:
 
         polished = _ollama_polish(full_prompt, ollama_cfg)
         if not polished:
-            print(f"   ✗ Rephrase failed — Ollama unreachable or returned nothing")
+            print("   ✗ Rephrase failed — Ollama unreachable or returned nothing")
             try: pyperclip.copy(original_clipboard)
             except Exception: pass
             return
@@ -314,7 +314,7 @@ class VoiceCommandManager:
                 print(f"   ✓ Typed: {text}")
             else:
                 self.logger.error("No clipboard manager available for type command")
-                print(f"   Failed: clipboard manager not available")
+                print("   Failed: clipboard manager not available")
         except Exception as e:
             self.logger.error(f"Failed to deliver text '{trigger}': {e}")
             print(f"   Failed to deliver text: {e}")

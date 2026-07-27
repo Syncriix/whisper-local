@@ -13,7 +13,6 @@
 import io
 import json
 import logging
-import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -53,9 +52,9 @@ def run_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> int:
         return 1
 
     print(f"✅ Listening on http://{host}:{port}")
-    print(f"   POST /v1/audio/transcriptions   — OpenAI-compatible Whisper endpoint")
-    print(f"   GET  /v1/models                 — list available models")
-    print(f"   GET  /health                    — liveness check")
+    print("   POST /v1/audio/transcriptions   — OpenAI-compatible Whisper endpoint")
+    print("   GET  /v1/models                 — list available models")
+    print("   GET  /health                    — liveness check")
     print("\n   Press Ctrl+C to stop.\n")
 
     try:

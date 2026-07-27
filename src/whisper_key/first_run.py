@@ -53,7 +53,6 @@ def show_welcome_window(on_close=None, hotkey_label: str = "Ctrl+Win"):
 def _run_welcome(on_close, hotkey_label):
     try:
         import tkinter as tk
-        from tkinter import ttk
     except ImportError:
         logger.warning("Tkinter unavailable — skipping welcome window")
         if on_close:

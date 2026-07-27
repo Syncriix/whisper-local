@@ -163,8 +163,8 @@ def export_transcripts(dest: str) -> int:
                                      _seconds(e), _chars(e)])
         elif fmt == '.md':
             with open(dest_path, 'w', encoding='utf-8') as f:
-                f.write(f"# Whisper Local — Transcription Log\n\n")
-                f.write(f"| Time | App | Seconds | Chars |\n|---|---|---|---|\n")
+                f.write("# Whisper Local — Transcription Log\n\n")
+                f.write("| Time | App | Seconds | Chars |\n|---|---|---|---|\n")
                 for e in entries:
                     f.write(f"| {e.get('ts','')} | {e.get('app','')} | {_seconds(e):.1f} | {_chars(e)} |\n")
         else:

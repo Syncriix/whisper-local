@@ -9,7 +9,6 @@
 import datetime
 import io
 import logging
-import os
 import re
 import sys
 import zipfile

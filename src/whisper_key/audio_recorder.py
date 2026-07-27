@@ -214,7 +214,7 @@ class AudioRecorder:
                 ))
                 if is_disconnect and retry_count <= max_retries:
                     self.logger.warning(f"Audio stream lost ({e}); recovering to default device (attempt {retry_count}/{max_retries})")
-                    print(f"⚠ Audio device disconnected — falling back to default input")
+                    print("⚠ Audio device disconnected — falling back to default input")
                     if self.is_recording:
                         with self._buffer_lock:
                             self.is_recording = False

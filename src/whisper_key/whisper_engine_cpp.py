@@ -58,7 +58,7 @@ class WhisperEngineCpp:
 
     def _load_model(self):
         print(f"🧠 Loading whisper.cpp model [{self.model_key}]...")
-        print(f"   (Model files auto-download from ggerganov/whisper.cpp on first use)")
+        print("   (Model files auto-download from ggerganov/whisper.cpp on first use)")
         try:
             self.model = self._Model(self.model_key, n_threads=self._n_threads)
             print(f"   ✓ whisper.cpp model [{self.model_key}] ready! (threads={self._n_threads})")

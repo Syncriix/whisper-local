@@ -5,7 +5,6 @@
 # history-mining paths provide one word at a time.
 import logging
 import re
-import sys
 from collections import Counter
 from pathlib import Path
 from typing import Iterable
@@ -75,7 +74,7 @@ def import_vocab(source: str, top_n: int = 50, write: bool = True) -> int:
     if not write:
         return 0
 
-    answer = input(f"\nMerge these into user_settings.yaml whisper.hotwords? [Y/n] ").strip().lower()
+    answer = input("\nMerge these into user_settings.yaml whisper.hotwords? [Y/n] ").strip().lower()
     if answer in ('n', 'no'):
         print("Aborted; no changes made.")
         return 0

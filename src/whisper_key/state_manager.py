@@ -825,7 +825,7 @@ class StateManager:
         if self.level_overlay:
             self.level_overlay.flash_success()
         self.logger.info(f"Rephrase complete: {len(selection)} -> {len(polished)} chars")
-        print(f"   ✓ Rephrased and pasted")
+        print("   ✓ Rephrased and pasted")
 
     NON_TEXT_EXES = {'progman.exe', 'workerw.exe', 'dwm.exe', 'searchhost.exe',
                      'shellexperiencehost.exe', 'startmenuexperiencehost.exe',
@@ -1023,13 +1023,13 @@ class StateManager:
             return True
 
         if current_state == "recording":
-            print(f"🎤 Cancelling recording to switch audio device...")
+            print("🎤 Cancelling recording to switch audio device...")
             self.cancel_active_recording()
             self._execute_audio_device_change(device_id, device_name)
             return True
 
         if current_state == "processing":
-            print(f"⏳ Queueing audio device change until transcription completes...")
+            print("⏳ Queueing audio device change until transcription completes...")
             self._pending_device_change = (device_id, device_name)
             return True
 

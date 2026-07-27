@@ -4,6 +4,14 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
 
 ## [Unreleased]
 
+### Internal
+- Lint sweep with no behaviour change: removed 9 genuinely unused imports and
+  dropped the `f` prefix from 19 f-strings that had no placeholders. The
+  remaining flagged imports are deliberate availability probes and are left
+  as-is. Personal AI-assistant scaffolding in the working copy is now
+  gitignored so it can't be published by an `add -A`.
+- Roadmap bug list reconciled with what actually shipped in 0.16.0.
+
 ## [0.16.1]
 
 ### Fixed

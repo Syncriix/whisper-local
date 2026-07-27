@@ -9,7 +9,7 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import pyperclip
 from ruamel.yaml import YAML

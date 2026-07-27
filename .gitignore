@@ -135,3 +135,11 @@ CLAUDE.local.md
 # Personal launcher scripts (user-local, not part of the repo)
 start_whisper_key.vbs
 start_whisper_local.vbs
+
+# Personal AI-assistant scaffolding extracted into this working copy. Not part
+# of the product; ignored so a `git add -A` can never publish it to the repo.
+.ai/
+.artifacts/
+brain/
+STARTER-PROMPT.md
+VERIFY.md

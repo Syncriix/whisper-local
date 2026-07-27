@@ -335,7 +335,7 @@ class SystemTray:
                     pystray.Menu(*audio_host_items)
                 ) if audio_host_items else None,
                 pystray.MenuItem(
-                    f"Audio Source",
+                    "Audio Source",
                     pystray.Menu(*audio_device_items)
                 ),
                 pystray.Menu.SEPARATOR,
@@ -629,7 +629,6 @@ class SystemTray:
         self._level_stop = threading.Event()
 
         def loop():
-            import time
             while not self._level_stop.is_set():
                 try:
                     level = self.state_manager.audio_recorder.get_current_level()

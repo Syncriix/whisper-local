@@ -7,7 +7,6 @@
 import os
 import platform
 import shutil
-import sys
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -48,7 +47,7 @@ def run_wizard() -> int:
         print(f"  input_device:   {overrides['audio']['input_device']}")
     print()
 
-    confirm = input(f"Write to user_settings.yaml? [Y/n] ").strip().lower()
+    confirm = input("Write to user_settings.yaml? [Y/n] ").strip().lower()
     if confirm in ('n', 'no'):
         print("Aborted; no changes made.")
         return 0
