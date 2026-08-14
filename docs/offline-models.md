@@ -22,17 +22,23 @@ No admin rights or IT involvement needed.
 downloaded):
 
 ```bash
-whisper-local --export-model D:\transfer
+whisper-local --export-model
 ```
 
-This copies the model into `D:\transfer\whisper-local-model-<name>` — four files,
-about 148 MB for the default `base` model. Put that folder on a USB stick, or
+That writes to your Desktop — four files, about 148 MB for the default `base`
+model. Copy the resulting `whisper-local-model-base` folder to a USB stick, or
 anywhere the offline machine can read.
 
-**On the offline machine:**
+To send it somewhere else, pass a folder that exists on your machine:
 
 ```bash
-whisper-local --import-model "D:\transfer\whisper-local-model-base"
+whisper-local --export-model E:\
+```
+
+**On the offline machine**, point at the folder you copied over:
+
+```bash
+whisper-local --import-model "E:\whisper-local-model-base"
 ```
 
 That installs the model into your app-data folder, registers it, and makes it

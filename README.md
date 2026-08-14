@@ -148,9 +148,10 @@ First launch downloads the default [`base`](https://huggingface.co/Systran/faste
 > model from a machine that has internet and import it on the one that doesn't —
 > no admin rights needed:
 > ```bash
-> whisper-local --export-model D:\transfer      # on the machine with internet
-> whisper-local --import-model D:\transfer\whisper-local-model-base   # on the offline one
+> whisper-local --export-model            # machine WITH internet — writes to your Desktop
+> whisper-local --import-model "<the folder you copied over>"   # the offline machine
 > ```
+> Pass a path to `--export-model` (a USB drive, say) to put it somewhere else.
 > Network-share and internal-mirror setups are covered in
 > **[docs/offline-models.md](docs/offline-models.md)**.
 

@@ -635,6 +635,36 @@ class ModelTransferTests(unittest.TestCase):
             self.assertFalse((Path(root) / "transfer").exists(),
                              "must not create a truncated path")
 
+    def test_export_to_missing_drive_explains_itself(self):
+        # Reported in use: `--export-model D:\transfer` on a machine with no D:
+        # drive produced a raw "[WinError 3] cannot find the path", which doesn't
+        # tell the user the actual problem. The message must name the drive and
+        # offer a destination that exists.
+        import io
+        import contextlib
+        from pathlib import Path
+        from whisper_key import model_transfer
+        if sys.platform != 'win32':
+            self.skipTest("drive-letter validation is Windows-only")
+        # Find a drive letter that genuinely doesn't exist on this machine.
+        import os
+        import string
+        free = [d for d in string.ascii_uppercase if not os.path.exists(d + ':' + os.sep)]
+        if not free:
+            self.skipTest("no unused drive letter to test with")
+        problem = model_transfer._validate_destination(Path(f"{free[0]}:\\transfer"))
+        self.assertTrue(problem, "missing drive must be reported as a problem")
+        self.assertIn(f"{free[0]}:", problem)
+        self.assertIn("Drives on this machine", problem)
+        self.assertIn("--export-model", problem)  # actionable suggestion
+
+    def test_export_default_destination_is_usable(self):
+        from pathlib import Path
+        from whisper_key import model_transfer
+        default = model_transfer._default_export_dir()
+        self.assertTrue(Path(default).is_dir(), "default export dir must exist")
+        self.assertEqual(model_transfer._validate_destination(Path(default)), "")
+
     def test_import_rejects_non_model_folder(self):
         import tempfile
         from whisper_key import model_transfer

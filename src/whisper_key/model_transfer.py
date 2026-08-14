@@ -68,9 +68,43 @@ def _copy_snapshot(snapshot: Path, dest: Path) -> list:
     return copied
 
 
-# `--export-model DEST`: bundle the configured model into a portable folder.
-# Returns a process exit code.
-def export_model(dest: str) -> int:
+# Where to put an export when the user doesn't say. Desktop is the most likely
+# place they'll actually find it; fall back to the home directory on the rare
+# setup without one (redirected profiles, some non-English Windows installs).
+def _default_export_dir() -> Path:
+    desktop = Path.home() / "Desktop"
+    return desktop if desktop.is_dir() else Path.home()
+
+
+# Check we can actually write the export before copying 150 MB, and explain the
+# problem in the user's terms. A raw "[WinError 3] cannot find the path" doesn't
+# tell someone that they simply don't have the drive they typed.
+def _validate_destination(parent: Path) -> str:
+    import os
+    import string
+
+    anchor = parent.anchor  # 'D:\' on Windows, '/' on POSIX
+    if anchor and not os.path.exists(anchor):
+        drives = [d + ":" for d in string.ascii_uppercase if os.path.exists(d + ":" + os.sep)]
+        detail = f"Drives on this machine: {', '.join(drives)}" if drives else ""
+        return (f"There's no {anchor.rstrip(os.sep)} drive on this machine.\n"
+                f"   {detail}\n"
+                f"   Try a folder that exists, e.g.:  "
+                f'whisper-local --export-model "{_default_export_dir()}"')
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        return (f"No permission to write to {parent}.\n"
+                f"   Pick a folder you own, e.g.:  "
+                f'whisper-local --export-model "{_default_export_dir()}"')
+    except OSError as e:
+        return f"Can't use {parent} as a destination: {e}"
+    return ""
+
+
+# `--export-model [DEST]`: bundle the configured model into a portable folder.
+# DEST defaults to the Desktop. Returns a process exit code.
+def export_model(dest: str = None) -> int:
     from .config_manager import ConfigManager
     from .model_registry import ModelRegistry
 
@@ -97,7 +131,11 @@ def export_model(dest: str) -> int:
     # if absent. No "does it look like a file?" guessing — a folder name that
     # happens to contain a dot (D:\transfer.v2, "OneDrive - Corp", a mktemp dir)
     # would be silently rewritten and the model would land somewhere else.
-    parent = Path(dest).expanduser()
+    parent = Path(dest).expanduser() if dest else _default_export_dir()
+    problem = _validate_destination(parent)
+    if problem:
+        print(f"ERROR: {problem}")
+        return 1
     target = parent / f"whisper-local-model-{model_key}"
 
     print(f"[export] Exporting model '{model_key}'")
@@ -107,6 +145,7 @@ def export_model(dest: str) -> int:
         copied = _copy_snapshot(snapshot, target)
     except OSError as e:
         print(f"ERROR: Export failed: {e}")
+        print(f"   Destination was {target}")
         return 1
 
     total = sum(size for _, size in copied)
