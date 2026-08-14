@@ -6,14 +6,14 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
 
 ### Fixed
 - **`--export-model` now explains a bad destination instead of dumping a Win32
-  error.** Passing a drive that doesn't exist (e.g. `D:	ransfer` on a machine
+  error.** Passing a drive that doesn't exist (e.g. `D:\transfer` on a machine
   with no D: drive) produced a raw `[WinError 3] The system cannot find the path
   specified`. It now says which drive is missing, lists the drives you do have,
   and suggests a working command. Permission problems get the same treatment,
   and the destination is validated *before* copying 148 MB rather than after.
 - **`--export-model` takes no argument now** and writes to your Desktop, so the
   common case needs no path at all. Pass a folder to send it elsewhere.
-- Docs no longer use `D:	ransfer` in examples — it assumed a drive many
+- Docs no longer use `D:\transfer` in examples — it assumed a drive many
   machines don't have, which is what prompted this.
 
 ## [0.17.0]
