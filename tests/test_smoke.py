@@ -596,6 +596,118 @@ class SettingsUiModuleTests(unittest.TestCase):
         self.assertTrue(hasattr(settings_ui, 'run_settings_window'))
 
 
+class ModelTransferTests(unittest.TestCase):
+    # Offline model transfer for locked-down networks where huggingface.co is
+    # blocked. These use a stub model folder so they never need a real download.
+    def _stub_model(self, root, name="whisper-local-model-base"):
+        from pathlib import Path
+        folder = Path(root) / name
+        folder.mkdir(parents=True)
+        (folder / "model.bin").write_bytes(b"weights")
+        (folder / "config.json").write_text('{"model_type":"whisper"}', encoding="utf-8")
+        (folder / "tokenizer.json").write_text("{}", encoding="utf-8")
+        return folder
+
+    def test_export_destination_with_a_dot_is_not_rewritten(self):
+        # Regression: an earlier version treated any dot in DEST as a file
+        # extension and stripped it, so "D:\transfer.v2" silently became
+        # "D:\transfer" and the model landed in the wrong directory.
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import model_transfer
+        with tempfile.TemporaryDirectory() as root:
+            dest = Path(root) / "transfer.v2"
+            snapshot = self._stub_model(root, name="snap")
+            with mock.patch.object(model_transfer, '_find_cached_snapshot', return_value=snapshot):
+                with mock.patch('whisper_key.config_manager.ConfigManager') as CM:
+                    CM.return_value.get_whisper_config.return_value = {'model': 'base', 'models': {}}
+                    rc = model_transfer.export_model(str(dest))
+            # Assert INSIDE the context — the temp tree is gone once it exits.
+            self.assertEqual(rc, 0)
+            self.assertTrue((dest / "whisper-local-model-base" / "model.bin").exists(),
+                            "export must land inside the dotted destination, not a truncated one")
+            self.assertFalse((Path(root) / "transfer").exists(),
+                             "must not create a truncated path")
+
+    def test_import_rejects_non_model_folder(self):
+        import tempfile
+        from whisper_key import model_transfer
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(model_transfer.import_model(d), 1)  # empty dir
+            self.assertEqual(model_transfer.import_model(d + "/nope"), 1)  # missing
+
+    def test_import_registers_and_activates_model(self):
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from ruamel.yaml import YAML
+        from whisper_key import model_transfer
+        with tempfile.TemporaryDirectory() as src_root, tempfile.TemporaryDirectory() as appdata:
+            bundle = self._stub_model(src_root)
+            with mock.patch.object(model_transfer, 'get_user_app_data_path', return_value=appdata):
+                rc = model_transfer.import_model(str(bundle))
+            self.assertEqual(rc, 0)
+            settings = Path(appdata) / "user_settings.yaml"
+            data = YAML().load(settings.read_text(encoding="utf-8"))
+            key = data["whisper"]["model"]
+            self.assertEqual(key, "local-base")
+            entry = data["whisper"]["models"][key]
+            self.assertTrue(Path(entry["source"]).is_dir())
+            # Model files must have been copied, not just referenced.
+            self.assertTrue((Path(entry["source"]) / "model.bin").exists())
+
+    def test_import_keep_in_place_does_not_copy(self):
+        # The network-share case: IT hosts one copy, every machine points at it.
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from ruamel.yaml import YAML
+        from whisper_key import model_transfer
+        with tempfile.TemporaryDirectory() as src_root, tempfile.TemporaryDirectory() as appdata:
+            bundle = self._stub_model(src_root)
+            with mock.patch.object(model_transfer, 'get_user_app_data_path', return_value=appdata):
+                rc = model_transfer.import_model(str(bundle), keep_in_place=True)
+            self.assertEqual(rc, 0)
+            data = YAML().load((Path(appdata) / "user_settings.yaml").read_text(encoding="utf-8"))
+            entry = data["whisper"]["models"][data["whisper"]["model"]]
+            self.assertEqual(Path(entry["source"]), bundle)
+            self.assertFalse((Path(appdata) / "models").exists())
+
+    def test_imported_model_is_seen_as_cached_by_registry(self):
+        # The whole point: a local path must count as "already downloaded" so the
+        # app never tries to reach huggingface.co for it.
+        import tempfile
+        from whisper_key.model_registry import ModelRegistry
+        with tempfile.TemporaryDirectory() as d:
+            bundle = self._stub_model(d)
+            reg = ModelRegistry(whisper_models_config={
+                'local-base': {'source': str(bundle), 'label': 'x', 'group': 'custom'}})
+            self.assertTrue(reg.get_model('local-base').is_local_path)
+            self.assertTrue(reg.is_model_cached('local-base'))
+            self.assertEqual(reg.get_source('local-base'), str(bundle))
+
+    def test_registered_settings_survive_existing_content(self):
+        # Registering must not wipe the user's other settings/comments.
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from ruamel.yaml import YAML
+        from whisper_key import model_transfer
+        with tempfile.TemporaryDirectory() as src_root, tempfile.TemporaryDirectory() as appdata:
+            settings = Path(appdata) / "user_settings.yaml"
+            settings.write_text(
+                "# my header\nwhisper:\n  hotwords:\n    - Kubernetes\naudio:\n  max_duration: 90\n",
+                encoding="utf-8")
+            bundle = self._stub_model(src_root)
+            with mock.patch.object(model_transfer, 'get_user_app_data_path', return_value=appdata):
+                model_transfer.import_model(str(bundle))
+            data = YAML().load(settings.read_text(encoding="utf-8"))
+            self.assertEqual(list(data["whisper"]["hotwords"]), ["Kubernetes"])
+            self.assertEqual(data["audio"]["max_duration"], 90)
+            self.assertEqual(data["whisper"]["model"], "local-base")
+
+
 class SystemAudioTests(unittest.TestCase):
     # The real capture path needs audio hardware (verified separately); here we
     # test the plumbing: graceful absence of soundcard, and mono/rate shaping.

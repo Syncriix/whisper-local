@@ -349,10 +349,24 @@ def main():
     parser.add_argument('--serve', action='store_true', help='Run a local OpenAI-compatible Whisper API server')
     parser.add_argument('--serve-host', default='127.0.0.1', help='Server bind host (default: 127.0.0.1)')
     parser.add_argument('--serve-port', type=int, default=7777, help='Server bind port (default: 7777)')
+    parser.add_argument('--export-model', metavar='DEST',
+                        help='Copy the configured model into a portable folder for an offline machine')
+    parser.add_argument('--import-model', metavar='SRC',
+                        help='Install a model folder produced by --export-model and make it active')
+    parser.add_argument('--keep-in-place', action='store_true',
+                        help='With --import-model: reference the folder where it is (e.g. a network share) instead of copying')
     parser.add_argument('--transcribe-system', metavar='SECONDS', nargs='?', const=10, type=int,
                         help='Transcribe N seconds of system audio / loopback (default 10). '
                              'Needs the loopback extra: pip install whisper-local[loopback]. EXPERIMENTAL.')
     args = parser.parse_args()
+
+    if args.export_model:
+        from .model_transfer import export_model
+        sys.exit(export_model(args.export_model))
+
+    if args.import_model:
+        from .model_transfer import import_model
+        sys.exit(import_model(args.import_model, keep_in_place=args.keep_in_place))
 
     if args.transcribe_system is not None:  # 0 is a valid (if silly) value; None = flag absent
         from .system_audio import run_cli

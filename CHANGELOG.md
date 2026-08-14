@@ -2,6 +2,30 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0]
+
+### Added
+- **Offline model transfer, for networks where `huggingface.co` is blocked.**
+  Corporate networks routinely block or gate HuggingFace, which made first run
+  impossible on a work machine. Two new commands move the model by hand — no
+  admin rights, no IT ticket:
+  ```bash
+  whisper-local --export-model D:\transfer                             # machine with internet
+  whisper-local --import-model D:\transfer\whisper-local-model-base    # offline machine
+  ```
+  Export copies the model out of the HuggingFace cache into a plain folder
+  (resolving the cache's symlinks into real files, ~148 MB for `base`); import
+  installs it, registers it, and makes it active. The app then treats it as
+  already-downloaded and never contacts HuggingFace for it.
+- **`--import-model --keep-in-place`** registers a folder without copying, so IT
+  can host one canonical copy on a network share and every machine points at it.
+  UNC paths and mapped drives both work.
+- **[docs/offline-models.md](docs/offline-models.md)** covers all four routes:
+  export/import, shared network drive, an internal HuggingFace mirror via
+  `HF_ENDPOINT`, and exactly what to ask IT to allowlist (one host, four static
+  files, once). It also explains why *self-hosting the model on HuggingFace does
+  not help* — a domain block applies to your repo there too.
+
 ## [0.16.2]
 
 ### Fixed

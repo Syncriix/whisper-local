@@ -49,6 +49,7 @@ Open-source fork of [PinW/whisper-key-local](https://github.com/PinW/whisper-key
 | **Audit Log** | `audit_log.py` | Optional append-only delivery audit trail | - |
 | **Update Check** | `update_check.py` | Opt-in daily GitHub release check | urllib |
 | **Settings I/O** | `settings_io.py` | `--export-settings` / `--import-settings` | shutil |
+| **Offline Models** | `model_transfer.py` | `--export-model` / `--import-model` for HF-blocked networks | shutil, ruamel.yaml |
 | **Vocab Import** | `vocab_import.py` | `--import-vocab` hotword mining from a folder | - |
 | **Setup Wizard** | `setup_wizard.py` | `--setup` interactive first-time configuration | - |
 | **Autostart** | `autostart.py` | Opt-in launch-on-login (Windows Run key / macOS LaunchAgent) | winreg |

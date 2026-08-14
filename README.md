@@ -144,6 +144,16 @@ pip install -e .
 
 First launch downloads the default [`base`](https://huggingface.co/Systran/faster-whisper-base) Whisper model (~141 MB) into your HuggingFace cache. After that, **everything runs offline**. (Prefer a smaller/faster download? Set `whisper.model: tiny` — ~75 MB.)
 
+> **`huggingface.co` blocked at work?** Common on corporate networks. Export the
+> model from a machine that has internet and import it on the one that doesn't —
+> no admin rights needed:
+> ```bash
+> whisper-local --export-model D:\transfer      # on the machine with internet
+> whisper-local --import-model D:\transfer\whisper-local-model-base   # on the offline one
+> ```
+> Network-share and internal-mirror setups are covered in
+> **[docs/offline-models.md](docs/offline-models.md)**.
+
 ### Use it
 
 | Action | Windows | macOS |
