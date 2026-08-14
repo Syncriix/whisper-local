@@ -1,10 +1,41 @@
 # Whisper Local — Code Audit & Improvement Backlog
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-08-14
 **Audited versions:** 0.10.0 (Round 1, below) and 0.11.x (Round 2, next section)
 **Method:** Parallel subsystem reviews + manual verification of every finding before fixing.
 
 > This is a living document. Each issue has a stable ID (e.g. `SRV-1`) so commits and PRs can reference it. When you fix one, change its **Status** to `FIXED (<commit>)` rather than deleting it, so history stays readable.
+
+---
+
+## Round 7 (0.16.2) — first external bug report (2026-08)
+
+- **BUG-2 (High, feature completely broken on the .exe)** — reported as
+  [#2](https://github.com/drajb/whisper-local/issues/2) by @asherwin86: enabling
+  "start on login" on Windows 11 opened a Python terminal at boot and the app
+  never started. Root cause: `autostart._launch_command()` treated a truthy
+  `$PYAPP` as "sys.executable IS the launcher", but pyapp unpacks a private
+  CPython and runs the app with it — so `sys.executable` is the *interpreter*.
+  The Run key therefore held a bare interpreter path with no script, which boots
+  straight into an interactive Python prompt. Fixed to use the `$PYAPP` value
+  itself (the real .exe path, exported because the build sets
+  `PYAPP_PASS_LOCATION=1`) — the same convention `utils.restart_or_exit` and
+  `console._set_icon` already followed, so `autostart` was the odd one out.
+  +3 regression tests, including one asserting the command is not a bare
+  interpreter.
+- **BUG-2b (self-heal)** A code fix alone leaves every already-affected user with
+  the bad registry value. `autostart.repair_if_broken()` now runs at startup and
+  rewrites an entry that is a lone interpreter with no arguments. Narrow by
+  design: entries with arguments, or pointing at the app executable, are never
+  touched. +3 tests covering the healthy-entry and not-enabled cases.
+- **BUG-2c (related)** For pip installs where `pythonw.exe` isn't beside the
+  interpreter (some venv / Microsoft Store layouts), autostart silently used
+  console `python.exe`, giving a terminal window at every boot. Now also checks
+  `sys._base_executable` and warns when no windowless launcher exists.
+
+Verified by unit tests, a proof that the old code produced a bare-interpreter
+command where the new code produces the .exe, and a real enable→inspect→disable
+round-trip against the Windows registry. Not reboot-tested (see issue reply).
 
 ---
 

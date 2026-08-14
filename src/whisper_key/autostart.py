@@ -30,17 +30,48 @@ def is_supported() -> bool:
 def _launch_command() -> list:
     exe = sys.executable
 
-    # Running as the standalone pyapp .exe: the executable IS the app launcher.
-    if os.environ.get("PYAPP") or getattr(sys, "frozen", False) or exe.lower().endswith("whisper-local.exe"):
+    # Standalone pyapp build: relaunch whisper-local.exe itself.
+    #
+    # Do NOT use sys.executable here. pyapp unpacks a private CPython and runs the
+    # app with it, so sys.executable is that interpreter — not the .exe. Putting it
+    # in the Run key launched a bare interpreter with no script at boot, i.e. an
+    # interactive Python console instead of the app (issue #2). pyapp is built with
+    # PYAPP_PASS_LOCATION=1, which exports the real executable path as $PYAPP; that
+    # is the same value utils.restart_or_exit and the tray's Restart item use.
+    pyapp_exe = os.environ.get("PYAPP", "")
+    if pyapp_exe and os.path.isfile(pyapp_exe):
+        return [pyapp_exe]
+
+    # Frozen builds (PyInstaller-style) genuinely do have sys.executable == the app.
+    if getattr(sys, "frozen", False) or exe.lower().endswith("whisper-local.exe"):
         return [exe]
 
     # pip / source install: relaunch the module with the windowless interpreter
     # (pythonw on Windows) so there's no console window at login.
     if sys.platform == "win32":
-        pythonw = Path(exe).with_name("pythonw.exe")
-        runner = str(pythonw) if pythonw.exists() else exe
-        return [runner, "-m", "whisper_key.main"]
+        return [_windowless_python(exe), "-m", "whisper_key.main"]
     return [exe, "-m", "whisper_key.main"]
+
+
+# Find pythonw.exe for the interpreter we're running under. It normally sits
+# beside python.exe, but not always: a venv created with --without-pip, and some
+# Microsoft Store layouts, ship python.exe alone. In that case fall back to the
+# BASE interpreter's pythonw (sys._base_executable) before giving up — otherwise
+# autostart silently launches console python and the user gets a terminal window
+# on every boot, which is half of what issue #2 reported.
+def _windowless_python(exe: str) -> str:
+    candidates = [Path(exe).with_name("pythonw.exe")]
+    base = getattr(sys, "_base_executable", None)
+    if base and base != exe:
+        candidates.append(Path(base).with_name("pythonw.exe"))
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError:
+            continue
+    logger.warning("pythonw.exe not found; autostart will show a console window")
+    return exe
 
 
 def _win_command_string() -> str:
@@ -61,6 +92,36 @@ def _win_is_enabled() -> bool:
         return False
     except OSError:
         return False
+
+
+def _win_stored_command() -> str:
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _WIN_RUN_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, _WIN_VALUE_NAME)
+        return str(value or "")
+    except (FileNotFoundError, OSError):
+        return ""
+
+
+# A Run entry that is a lone interpreter path with no script — the exact broken
+# value the pre-fix pyapp build wrote (issue #2). Booting it opens an interactive
+# Python console instead of the app. Matched narrowly (single token, no args) so
+# we only ever touch entries that are genuinely broken.
+def _is_broken_bare_interpreter(command: str) -> bool:
+    command = (command or "").strip()
+    if not command:
+        return False
+    if command.startswith('"'):
+        end = command.find('"', 1)
+        if end == -1:
+            return False
+        token, rest = command[1:end], command[end + 1:]
+    else:
+        token, _, rest = command.partition(" ")
+    if rest.strip():
+        return False  # has arguments (e.g. -m whisper_key.main) → fine
+    return Path(token).name.lower() in ("python.exe", "pythonw.exe", "python3.exe")
 
 
 def _win_enable() -> bool:
@@ -169,6 +230,30 @@ def disable() -> bool:
         return False
     except Exception as e:
         logger.error(f"Failed to disable autostart: {e}")
+        return False
+
+
+# Self-heal a Run entry left broken by the pre-0.16.2 pyapp bug (issue #2), where
+# autostart pointed at a bare interpreter and boot opened a Python console instead
+# of the app. Called once at startup: without it, affected users would have to
+# notice the problem and toggle autostart off/on themselves. Deliberately narrow —
+# it only rewrites an entry that is a lone interpreter with no arguments, never one
+# the user or a working version wrote. Returns True if it repaired something.
+def repair_if_broken() -> bool:
+    try:
+        if sys.platform != "win32" or not _win_is_enabled():
+            return False
+        stored = _win_stored_command()
+        if not _is_broken_bare_interpreter(stored):
+            return False
+        corrected = _win_command_string()
+        if corrected.strip() == stored.strip():
+            return False  # nothing better to offer; leave it alone
+        _win_enable()
+        logger.warning(f"Repaired broken autostart entry: {stored!r} -> {corrected!r}")
+        return True
+    except Exception as e:
+        logger.debug(f"Autostart repair check failed: {e}")
         return False
 
 

@@ -474,6 +474,17 @@ def main():
     try:
         config_manager = ConfigManager()
         setup_logging(config_manager)
+
+        # Self-heal an autostart entry left broken by the pre-0.16.2 pyapp bug
+        # (issue #2): it pointed at a bare interpreter, so boot opened a Python
+        # console instead of the app. Runs after logging is up so the repair is
+        # recorded; a no-op for everyone whose entry is absent or already correct.
+        try:
+            from . import autostart
+            if autostart.repair_if_broken():
+                print("   ✓ Repaired a broken 'start on login' entry from an earlier version")
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Autostart repair skipped: {e}")
         logger = logging.getLogger(__name__)
         setup_exception_handler()
 

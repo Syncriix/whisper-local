@@ -2,7 +2,27 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.2]
+
+### Fixed
+- **"Start on login" opened a Python console instead of the app**
+  ([#2](https://github.com/drajb/whisper-local/issues/2), thanks @asherwin86).
+  On the standalone `.exe`, autostart registered `sys.executable` — but pyapp
+  unpacks a private CPython and runs the app with it, so that path is the bare
+  *interpreter*, not `whisper-local.exe`. Booting it launched an interactive
+  Python prompt in a terminal and Whisper Local never started. Autostart now
+  uses the executable path pyapp exports as `$PYAPP`, matching what the tray's
+  Restart item and the GPU-onboarding relaunch already did.
+- **Existing broken entries repair themselves.** Anyone who already enabled
+  autostart still had the bad value in their registry, which a code fix alone
+  wouldn't touch. On startup the app now detects an entry that is a lone
+  interpreter with no script and rewrites it. Deliberately narrow — an entry
+  with arguments, or one pointing at the app executable, is never modified.
+- **No more console window at boot for some pip installs.** If `pythonw.exe`
+  wasn't beside the interpreter (seen with some venv and Microsoft Store
+  layouts), autostart silently fell back to console `python.exe`. It now also
+  checks the base interpreter before falling back, and logs a warning when it
+  genuinely can't find a windowless launcher.
 
 ### Internal
 - Lint sweep with no behaviour change: removed 9 genuinely unused imports and

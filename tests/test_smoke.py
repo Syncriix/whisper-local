@@ -1160,6 +1160,104 @@ class AutostartTests(unittest.TestCase):
         self.assertIsInstance(cmd, list)
         self.assertTrue(cmd and cmd[0])
 
+    def test_pyapp_autostart_uses_exe_not_bare_interpreter(self):
+        # Regression for issue #2. Under pyapp, sys.executable is the private
+        # unpacked CPython, NOT whisper-local.exe. Using it put a bare interpreter
+        # in the Run key, so boot opened an interactive Python console instead of
+        # the app. $PYAPP carries the real .exe path (PYAPP_PASS_LOCATION=1).
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import autostart
+        with tempfile.TemporaryDirectory() as d:
+            fake_exe = Path(d) / "whisper-local.exe"
+            fake_exe.write_text("stub", encoding="utf-8")
+            unpacked_python = str(Path(d) / "python.exe")
+            with mock.patch.dict(os.environ, {"PYAPP": str(fake_exe)}):
+                with mock.patch.object(autostart.sys, 'executable', unpacked_python):
+                    cmd = autostart._launch_command()
+        self.assertEqual(cmd, [str(fake_exe)],
+                         "pyapp autostart must launch the .exe, not sys.executable")
+        # The whole failure mode was "a bare interpreter with no script".
+        self.assertFalse(cmd[0].endswith("python.exe"))
+
+    def test_broken_bare_interpreter_detection(self):
+        # The repair must fire on the broken issue-#2 value and on nothing else,
+        # so it can never clobber a healthy or user-customised Run entry.
+        from whisper_key.autostart import _is_broken_bare_interpreter as broken
+        # Broken: a lone interpreter, no script to run.
+        self.assertTrue(broken(r"C:\pyapp\python.exe"))
+        self.assertTrue(broken(r'"C:\Program Files\pyapp\python.exe"'))
+        self.assertTrue(broken(r"C:\x\pythonw.exe"))
+        self.assertTrue(broken(r"C:\x\python3.exe"))
+        # Healthy: has arguments, or is the app executable itself.
+        self.assertFalse(broken(r"C:\x\pythonw.exe -m whisper_key.main"))
+        self.assertFalse(broken(r'"C:\Program Files\py\pythonw.exe" -m whisper_key.main'))
+        self.assertFalse(broken(r"C:\apps\whisper-local.exe"))
+        self.assertFalse(broken(""))
+        self.assertFalse(broken("   "))
+
+    def test_repair_is_noop_when_not_enabled(self):
+        import unittest.mock as mock
+        from whisper_key import autostart
+        with mock.patch.object(autostart, '_win_is_enabled', return_value=False):
+            self.assertFalse(autostart.repair_if_broken())
+
+    def test_repair_rewrites_only_broken_entry(self):
+        import unittest.mock as mock
+        from whisper_key import autostart
+        if sys.platform != 'win32':
+            self.skipTest("registry repair is Windows-only")
+        good = r"C:\x\pythonw.exe -m whisper_key.main"
+        with mock.patch.object(autostart, '_win_is_enabled', return_value=True):
+            # Healthy entry -> untouched.
+            with mock.patch.object(autostart, '_win_stored_command', return_value=good):
+                with mock.patch.object(autostart, '_win_enable') as enable:
+                    self.assertFalse(autostart.repair_if_broken())
+                    enable.assert_not_called()
+            # Broken entry -> rewritten.
+            with mock.patch.object(autostart, '_win_stored_command', return_value=r"C:\p\python.exe"):
+                with mock.patch.object(autostart, '_win_command_string', return_value=good):
+                    with mock.patch.object(autostart, '_win_enable') as enable:
+                        self.assertTrue(autostart.repair_if_broken())
+                        enable.assert_called_once()
+
+    def test_pip_install_autostart_prefers_windowless_interpreter(self):
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import autostart
+        if sys.platform != 'win32':
+            self.skipTest("pythonw.exe selection is Windows-only")
+        with tempfile.TemporaryDirectory() as d:
+            py = Path(d) / "python.exe"
+            pyw = Path(d) / "pythonw.exe"
+            py.write_text("stub", encoding="utf-8")
+            pyw.write_text("stub", encoding="utf-8")
+            env = {k: v for k, v in os.environ.items() if k != 'PYAPP'}
+            with mock.patch.dict(os.environ, env, clear=True):
+                with mock.patch.object(autostart.sys, 'executable', str(py)):
+                    cmd = autostart._launch_command()
+        self.assertEqual(cmd, [str(pyw), "-m", "whisper_key.main"])
+
+    def test_missing_pythonw_falls_back_without_crashing(self):
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import autostart
+        if sys.platform != 'win32':
+            self.skipTest("pythonw.exe selection is Windows-only")
+        with tempfile.TemporaryDirectory() as d:
+            py = Path(d) / "python.exe"
+            py.write_text("stub", encoding="utf-8")  # no pythonw beside it
+            env = {k: v for k, v in os.environ.items() if k != 'PYAPP'}
+            with mock.patch.dict(os.environ, env, clear=True):
+                with mock.patch.object(autostart.sys, 'executable', str(py)):
+                    with mock.patch.object(autostart.sys, '_base_executable', str(py)):
+                        cmd = autostart._launch_command()
+        # Falls back to console python, but still passes -m so the APP runs.
+        self.assertEqual(cmd, [str(py), "-m", "whisper_key.main"])
+
     def test_macos_plist_roundtrip(self):
         import tempfile
         import unittest.mock as mock
