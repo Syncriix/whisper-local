@@ -12,7 +12,7 @@
 import logging
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,9 @@ def _is_broken_bare_interpreter(command: str) -> bool:
         token, _, rest = command.partition(" ")
     if rest.strip():
         return False  # has arguments (e.g. -m whisper_key.main) → fine
-    return Path(token).name.lower() in ("python.exe", "pythonw.exe", "python3.exe")
+    # PureWindowsPath, not Path: this parses a Windows registry value, so
+    # backslashes are separators even when the tests run on macOS/Linux.
+    return PureWindowsPath(token).name.lower() in ("python.exe", "pythonw.exe", "python3.exe")
 
 
 def _win_enable() -> bool:
