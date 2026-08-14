@@ -616,6 +616,11 @@ class ModelTransferTests(unittest.TestCase):
         import unittest.mock as mock
         from pathlib import Path
         from whisper_key import model_transfer
+        # export_model pulls ModelRegistry -> faster_whisper, absent in lean CI.
+        try:
+            import faster_whisper  # noqa: F401
+        except Exception:
+            self.skipTest("faster_whisper not installed")
         with tempfile.TemporaryDirectory() as root:
             dest = Path(root) / "transfer.v2"
             snapshot = self._stub_model(root, name="snap")
@@ -678,7 +683,10 @@ class ModelTransferTests(unittest.TestCase):
         # The whole point: a local path must count as "already downloaded" so the
         # app never tries to reach huggingface.co for it.
         import tempfile
-        from whisper_key.model_registry import ModelRegistry
+        try:
+            from whisper_key.model_registry import ModelRegistry
+        except Exception:
+            self.skipTest("model_registry not importable (faster_whisper absent)")
         with tempfile.TemporaryDirectory() as d:
             bundle = self._stub_model(d)
             reg = ModelRegistry(whisper_models_config={
