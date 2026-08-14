@@ -83,12 +83,12 @@ def export_model(dest: str) -> int:
     if model and model.is_local_path:
         snapshot = Path(model.source)
         if not (snapshot / "model.bin").exists():
-            print(f"✗ '{model_key}' points at {snapshot}, but no model.bin is there.")
+            print(f"ERROR: '{model_key}' points at {snapshot}, but no model.bin is there.")
             return 1
     else:
         snapshot = _find_cached_snapshot(model_key, registry.get_cache_folder(model_key))
         if snapshot is None:
-            print(f"✗ Model '{model_key}' isn't downloaded on this machine yet.")
+            print(f"ERROR: Model '{model_key}' isn't downloaded on this machine yet.")
             print("   Run Whisper Local once (or --selftest) on a machine WITH internet,")
             print("   then export from there.")
             return 1
@@ -100,19 +100,19 @@ def export_model(dest: str) -> int:
     parent = Path(dest).expanduser()
     target = parent / f"whisper-local-model-{model_key}"
 
-    print(f"📦 Exporting model '{model_key}'")
+    print(f"[export] Exporting model '{model_key}'")
     print(f"   from: {snapshot}")
     print(f"   to:   {target}")
     try:
         copied = _copy_snapshot(snapshot, target)
     except OSError as e:
-        print(f"✗ Export failed: {e}")
+        print(f"ERROR: Export failed: {e}")
         return 1
 
     total = sum(size for _, size in copied)
     for name, size in copied:
         print(f"     {name:26s} {size / 1e6:8.2f} MB")
-    print(f"   ✓ {len(copied)} files, {total / 1e6:.0f} MB total")
+    print(f"   OK  {len(copied)} files, {total / 1e6:.0f} MB total")
     print()
     print("Next: copy that folder to the offline machine (USB or network share), then run:")
     print(f'   whisper-local --import-model "{target}"')
@@ -124,11 +124,11 @@ def export_model(dest: str) -> int:
 def import_model(src: str, keep_in_place: bool = False) -> int:
     source = Path(src).expanduser()
     if not source.is_dir():
-        print(f"✗ Not a folder: {source}")
+        print(f"ERROR: Not a folder: {source}")
         return 1
     missing = [f for f in REQUIRED_FILES if not (source / f).exists()]
     if missing:
-        print(f"✗ {source} doesn't look like a Whisper model — missing: {', '.join(missing)}")
+        print(f"ERROR: {source} doesn't look like a Whisper model. Missing: {', '.join(missing)}")
         print("   Expected the folder produced by --export-model.")
         return 1
 
@@ -139,10 +139,10 @@ def import_model(src: str, keep_in_place: bool = False) -> int:
         # Referencing a network share directly: nothing is copied, so IT can host
         # one canonical copy and every machine points at it.
         installed = source
-        print(f"🔗 Registering model in place: {installed}")
+        print(f"[import] Registering model in place: {installed}")
     else:
         installed = Path(get_user_app_data_path()) / "models" / model_name
-        print(f"📥 Installing model to: {installed}")
+        print(f"[import] Installing model to: {installed}")
         installed.mkdir(parents=True, exist_ok=True)
         for item in source.iterdir():
             if item.is_file():
@@ -151,8 +151,8 @@ def import_model(src: str, keep_in_place: bool = False) -> int:
     if not _register_model(key, str(installed), model_name):
         return 1
 
-    print(f"   ✓ Registered as '{key}' and set as the active model.")
-    print("   Restart Whisper Local (tray → Restart) to load it.")
+    print(f"   OK  Registered as '{key}' and set as the active model.")
+    print("   Restart Whisper Local (tray menu -> Restart) to load it.")
     return 0
 
 
@@ -182,5 +182,5 @@ def _register_model(key: str, path: str, label: str) -> bool:
         return True
     except Exception as e:
         logger.error(f"Could not register model: {e}")
-        print(f"✗ Could not write settings: {e}")
+        print(f"ERROR: Could not write settings: {e}")
         return False
