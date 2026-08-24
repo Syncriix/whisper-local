@@ -13,6 +13,9 @@ whisper: # Whisper AI Model Settings
     # - faster_whisper (default): CTranslate2-based, GPU-friendly, mature
     # - whisper_cpp: opt-in via `pip install whisper-local[whispercpp]`.
     #   Better Apple Silicon perf, GGUF model format, lower memory.
+    # - openvino: opt-in via `pip install whisper-local[openvino]`.
+    #   Intel GPU acceleration (Arc / Iris Xe / Core Ultra iGPUs) — set
+    #   device: gpu below. See docs/gpu-setup.md "Intel (OpenVINO)".
     backend: faster_whisper
 
     # Model selection
@@ -24,6 +27,7 @@ whisper: # Whisper AI Model Settings
 
     # Transcription device
     # Options: cpu, cuda (for both NVIDIA and AMD)
+    # With the openvino backend: gpu (Intel iGPU/Arc), cpu, npu, auto
     # For GPU setup, see https://github.com/drajb/whisper-local/blob/master/docs/gpu-setup.md
     device: cpu
 

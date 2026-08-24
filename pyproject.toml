@@ -69,6 +69,11 @@ dependencies = [
 # Models auto-download from huggingface.co/ggerganov/whisper.cpp on first use.
 whispercpp = ["pywhispercpp>=1.2"]
 
+# Opt-in Intel GPU backend (set `whisper.backend: openvino`, `whisper.device: gpu`)
+# Exact pin: openvino / openvino-genai / openvino-tokenizers are ABI-locked and
+# must stay a matched trio — the genai wheel pins the other two to itself.
+openvino = ["openvino-genai==2026.3.0.0"]
+
 # Spectral noise suppression via noisereduce (set `audio.noise_suppression.enabled: true`)
 noise = ["noisereduce>=3.0.0"]
 

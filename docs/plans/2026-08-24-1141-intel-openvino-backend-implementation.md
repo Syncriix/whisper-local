@@ -66,11 +66,13 @@ mirror-the-API pattern. This plan adds a third engine the same way.
   - ✅ Smoke test: medium→base switch incl. fresh download worked; base transcribes in 0.4 s
   - ⚠️ New finding: with `hotwords` configured, silence hallucinates the hotwords themselves ("OpenVINO, Whisper") — VAD pre-check is even more load-bearing than assumed
 
-3. **Wiring: config, main, packaging**
-- [ ] `main.py:setup_whisper_engine()`: `backend == 'openvino'` branch, identical kwargs to the other two
-- [ ] Map config `device` for this backend: `gpu`→`"GPU"`, `cpu`→`"CPU"`, `npu`→`"NPU"`, `auto`→`"AUTO"`; treat a leftover `cuda` as `gpu`
-- [ ] `config.defaults.yaml`: extend the `backend:` comment block with `openvino` and document the device values it accepts
-- [ ] `pyproject.toml`: `openvino = ["openvino-genai==<current, e.g. 2026.3.0>"]` extra; confirm the resolved `openvino`/`openvino-tokenizers` versions match exactly (ABI lockstep)
+3. **Wiring: config, main, packaging** ✅ complete
+- [x] `main.py:setup_whisper_engine()`: `backend == 'openvino'` branch, identical kwargs to the other two
+- [x] Map config `device` for this backend: `gpu`→`"GPU"`, `cpu`→`"CPU"`, `npu`→`"NPU"`, `auto`→`"AUTO"`; treat a leftover `cuda` as `gpu`
+  - ✅ Lives in the engine (`_DEVICE_MAP`), keeping main.py backend-agnostic
+- [x] `config.defaults.yaml`: extend the `backend:` comment block with `openvino` and document the device values it accepts
+- [x] `pyproject.toml`: `openvino = ["openvino-genai==2026.3.0.0"]` extra; confirm the resolved `openvino`/`openvino-tokenizers` versions match exactly (ABI lockstep)
+  - ✅ Observed pip resolve the matched 2026.3.0 trio during the spike install
 
 4. **Offline model transfer**
 - [ ] `model_transfer.py`: recognize an OpenVINO IR snapshot (`openvino_encoder_model.xml/.bin`, `openvino_decoder_model.xml/.bin`, tokenizer files) alongside the CT2 `model.bin` check so `--export-model` / `--import-model` work for `OpenVINO/*-ov` models — the HF-blocked-network story is a headline feature of this fork and must not silently exclude the new backend
