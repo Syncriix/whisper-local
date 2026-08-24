@@ -1,0 +1,184 @@
+# Intel GPU Support: OpenVINO Backend
+
+As a *user with an Intel Arc GPU (e.g. Arc 140T iGPU in Core Ultra 200H laptops)* I want **GPU-accelerated transcription via an OpenVINO backend** so I can run the `medium` model at comfortable speed instead of being stuck with `tiny`/`base` on CPU.
+
+## Background
+
+faster-whisper (CTranslate2) supports only CUDA on GPU. The AMD path in this
+project works by swapping in a custom CTranslate2 ROCm wheel — that trick has no
+Intel equivalent: CTranslate2 has no SYCL backend and no one is building one
+(OpenNMT/CTranslate2#2032 sits unanswered). ZLUDA is AMD-only, PyTorch XPU costs
+a 640 MB wheel for ~2.2x CPU, pywhispercpp ships CPU-only wheels, and DirectML is
+deprecated with known whisper-medium failures on Intel iGPUs.
+
+The viable path is **OpenVINO GenAI's `WhisperPipeline`**:
+
+- `pip install openvino-genai` — torch-free, ~81 MB compressed, Windows wheels,
+  Python 3.10–3.14. Runtime needs only the standard Intel graphics driver
+  (no oneAPI, no Level Zero install).
+- Pre-converted IR models on HF under the `OpenVINO` org (e.g.
+  `OpenVINO/whisper-medium-int8-ov`, ~784 MB) — no torch needed for conversion.
+- Takes 16 kHz mono float32 numpy directly (exactly what `audio_recorder.py`
+  produces), auto-chunks >30 s audio, supports `initial_prompt` + `hotwords`,
+  language forcing/auto-detect, and the translate task.
+- Arc 140T = Arrow Lake-H Xe-LPG+ **with XMX** (~77 int8 TOPS), officially
+  supported since OpenVINO 2025.0. Extrapolated: a 30 s utterance in ~5–8 s
+  with medium-int8. **No published measurement exists — hence the spike phase.**
+
+The repo already has the seam: `whisper.backend` config selects the engine in
+`main.py:setup_whisper_engine()`, and `whisper_engine_cpp.py` proves the
+mirror-the-API pattern. This plan adds a third engine the same way.
+
+### Hard constraints discovered in research (design inputs, not options)
+
+| Constraint | Source | Consequence |
+|---|---|---|
+| No `no_speech_prob` / temperature fallback / internal VAD | WhisperGenerationConfig has none | Our TEN-VAD pre-check is the only silence defense (already in the engine contract) |
+| Beam search broken (`num_beams>=2` crashes) | openvino.genai#2069 | Greedy only; ignore `beam_size` config, log once |
+| Rare unfixed `generate()` hang, no cancel API | openvino.genai#1950 | Watchdog thread + timeout around every generate |
+| `openvino`/`-genai`/`-tokenizers` are ABI-locked | GenAI dependency docs, #407 | Pin `openvino-genai` exactly; verify pip resolves the matched trio |
+| First GPU compile takes minutes, seconds after | #1992, Audacity plugin docs | `CACHE_DIR` property + one-time "preparing model" message; warmup at startup absorbs it |
+| GPU plugin has history of silently-wrong output between releases | openvino#29131, #37419 | `device: cpu` stays a documented escape hatch; canary check in spike |
+
+## Implementation Plan
+
+1. **Spike: measure medium on the Arc 140T (GATE — do this before any app code)**
+- [ ] Write `.temp/openvino-spike.py`: throwaway venv, `pip install openvino-genai`, `huggingface_hub.snapshot_download("OpenVINO/whisper-medium-int8-ov")`, transcribe a real ~15 s speech WAV on `"GPU"`; print available devices, cold-compile time, warm time over 3 runs, and the transcript
+- [ ] Sanity-check transcript correctness (the silent-wrong-output failure mode) and behavior on 1 s of silence
+- [ ] Record numbers in this plan's Status section
+- [ ] **Gate:** warm transcription must clearly beat CPU medium (int8) on the same machine and land in a dictation-friendly range (~≤0.3x realtime). If it fails, stop and reassess before writing the backend.
+
+2. **Engine: `whisper_engine_openvino.py`**
+- [ ] New class `WhisperEngineOpenVino` mirroring `WhisperEngine`'s public API exactly: same `__init__` signature, `transcribe_audio()`, `change_model()`, `is_loading()` (see Implementation Details)
+- [ ] Model-key → HF repo mapping table (`medium` → `OpenVINO/whisper-medium-int8-ov` etc.), `compute_type` selecting int8 vs fp16 repo variant; unmapped keys raise with a list of supported ones
+- [ ] Download via `huggingface_hub.snapshot_download` with the same "first run only" size-hint messaging as the other engines; resolve to the local snapshot dir
+- [ ] Build `WhisperPipeline(model_dir, device, CACHE_DIR=<appdata>/openvino_cache)`; print a one-time "Preparing model for GPU — first launch can take a few minutes" when the compile cache is cold
+- [ ] Generation config: language (`auto` → autodetect), task, `initial_prompt`, `hotwords` (join list like `WhisperEngine` does); clamp to greedy decoding regardless of `beam_size`
+- [ ] Watchdog: run `generate()` on a worker thread, `join(timeout)`; on timeout log, print an actionable error (suggest restart / `device: cpu`), return None
+- [ ] `_warmup()` with 1 s silence so the GPU compile happens at startup, not on the first real dictation
+- [ ] `change_model()`: synchronous rebuild with progress callbacks (mirror `WhisperEngineCpp`)
+
+3. **Wiring: config, main, packaging**
+- [ ] `main.py:setup_whisper_engine()`: `backend == 'openvino'` branch, identical kwargs to the other two
+- [ ] Map config `device` for this backend: `gpu`→`"GPU"`, `cpu`→`"CPU"`, `npu`→`"NPU"`, `auto`→`"AUTO"`; treat a leftover `cuda` as `gpu`
+- [ ] `config.defaults.yaml`: extend the `backend:` comment block with `openvino` and document the device values it accepts
+- [ ] `pyproject.toml`: `openvino = ["openvino-genai==<current, e.g. 2026.3.0>"]` extra; confirm the resolved `openvino`/`openvino-tokenizers` versions match exactly (ABI lockstep)
+
+4. **Offline model transfer**
+- [ ] `model_transfer.py`: recognize an OpenVINO IR snapshot (`openvino_encoder_model.xml/.bin`, `openvino_decoder_model.xml/.bin`, tokenizer files) alongside the CT2 `model.bin` check so `--export-model` / `--import-model` work for `OpenVINO/*-ov` models — the HF-blocked-network story is a headline feature of this fork and must not silently exclude the new backend
+- [ ] `--import-model` writes the local dir into config the same way; engine accepts a local path as model source
+
+5. **Docs & diagnostics**
+- [ ] `gpu-setup.md`: new **"Intel (OpenVINO)"** section — requirements (Intel iGPU/Arc + current graphics driver, nothing else), pip/pipx install of the extra, config snippet (`backend: openvino`, `device: gpu`, `compute_type: int8`), first-launch compile note, limitations (greedy decoding, `device: cpu` fallback), measured performance from the spike
+- [ ] `doctor.py`: under the existing backend check, when `backend: openvino` report import/version and `openvino.Core().available_devices`
+- [ ] `docs/project-index.md`: component table row; `CHANGELOG.md` entry
+
+6. **Onboarding auto-detect (last, explicitly cuttable)**
+- [ ] `platform/windows/gpu.py`: detect Intel GPUs (Win32_VideoController match on Intel Arc/Iris/UHD) when no NVIDIA/AMD card is found; new class `intel`
+- [ ] `onboarding.py`: `intel` prompt variant — installs the pinned `openvino-genai`, sets `backend: openvino` + `device: gpu` + `compute_type: int8`; skip the CT2-specific checks for this class
+- [ ] macOS mirror stays a no-op (already is)
+
+7. **Verification**
+- [ ] Unit tests: model-key mapping, import-error message when the extra isn't installed, device-string mapping (no openvino needed in CI — mirror the lean-env skip pattern from the model-transfer tests)
+- [ ] `/test-from-wsl` startup check with backend unset (no regression)
+- [ ] **Manual test on the 140T machine (ask user):** full dictation loop on `medium` — hotkey, speak, text at cursor; model switch via tray; silence press; a >30 s dictation
+
+## Implementation Details
+
+### Backend selection stays dumb
+
+`setup_whisper_engine()` grows one `elif`, config stays the single source of truth:
+
+```yaml
+whisper:
+    backend: openvino   # faster_whisper | whisper_cpp | openvino
+    device: gpu         # openvino: gpu (Intel iGPU/Arc), cpu, npu, auto
+    compute_type: int8  # int8 (recommended) or float16 → picks the IR variant
+    model: medium
+```
+
+### Engine skeleton (the non-obvious parts)
+
+```python
+# Model keys map to pre-converted IR repos — no torch, no conversion step.
+_OPENVINO_REPOS = {
+    # key: (int8_repo, fp16_repo)
+    "medium": ("OpenVINO/whisper-medium-int8-ov", "OpenVINO/whisper-medium-fp16-ov"),
+    "large":  ("OpenVINO/whisper-large-v3-int8-ov", ...),   # 'large' == large-v3, as elsewhere
+    ...
+}
+
+def transcribe_audio(self, audio_data):
+    # identical VAD pre-check + flatten/astype contract as the other engines
+    ...
+    # openvino.genai#1950: generate() can hang with no cancel API — watchdog it
+    result_box = {}
+    worker = threading.Thread(target=lambda: result_box.update(r=self.pipeline.generate(audio_data, self._gen_config)), daemon=True)
+    worker.start()
+    worker.join(timeout=self._generate_timeout(len(audio_data)))
+    if worker.is_alive():
+        ...  # log + user-facing error, return None
+```
+
+- **Timeout:** `max(60, 4 × clip_seconds)` — generous enough for a cold CPU
+  fallback, tight enough that a hang surfaces within the user's patience.
+- **Verify at implementation time** (research flagged as unconfirmed): exact
+  `hotwords`/`initial_prompt` field types on `WhisperGenerationConfig`, whether
+  a multilingual `small` pre-converted repo exists (if not: `small` maps to
+  nothing and says so), and behavior on all-silence input.
+
+### What this backend does NOT get
+
+- No async model loading (mirror `WhisperEngineCpp`'s sync `change_model`) —
+  the faster-whisper engine's background loader exists for big CT2 downloads;
+  OpenVINO switches are rarer and the sync path is simpler.
+- No beam search, no temperature fallback — upstream limitations, documented
+  in gpu-setup.md rather than worked around.
+- No NPU tuning — `device: npu` is passed through for the adventurous but the
+  documented path is `gpu` (ARL-H NPU is 13 TOPS vs the iGPU's 77).
+
+### Scope
+
+| File | Changes |
+|------|---------|
+| `src/whisper_key/whisper_engine_openvino.py` | **new** — the engine |
+| `src/whisper_key/main.py` | one `elif` in `setup_whisper_engine()` |
+| `src/whisper_key/config.defaults.yaml` | backend/device comment docs |
+| `pyproject.toml` | `[openvino]` extra, pinned |
+| `src/whisper_key/model_transfer.py` | recognize IR snapshots |
+| `src/whisper_key/doctor.py` | openvino branch in backend check |
+| `docs/gpu-setup.md` | Intel section |
+| `docs/project-index.md`, `CHANGELOG.md` | bookkeeping |
+| `src/whisper_key/platform/windows/gpu.py`, `onboarding.py` | phase 6, cuttable |
+
+## Success Criteria
+
+- [ ] Spike numbers recorded; medium-int8 on 140T GPU clearly beats CPU medium
+- [ ] `pip install whisper-local[openvino]` + 3-line config change = working GPU dictation on Intel, no other setup
+- [ ] `medium` dictation round-trip on the 140T: speak ~15 s, text lands at cursor in a few seconds
+- [ ] First launch shows the compile message once; second launch starts fast (cache hit)
+- [ ] Silence press produces no hallucinated text (VAD short-circuit fires)
+- [ ] Tray model switching works between mapped models; unmapped model gives a clear message, not a crash
+- [ ] `--export-model` / `--import-model` round-trips an OpenVINO model between machines
+- [ ] `--doctor` reports backend, version, and available OpenVINO devices
+- [ ] Existing backends untouched: startup with default config unchanged (`/test-from-wsl`)
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| Medium too slow on 140T despite XMX (no published benchmark exists) | Spike gate before any integration work |
+| GPU plugin silently wrong output on this driver/release combo | Spike checks transcript correctness; `device: cpu` documented fallback |
+| `openvino-genai` pin drifts out of ABI lockstep on future bumps | Single pinned extra; `/check-deps` flow catches bumps, doctor surfaces version |
+| Multilingual `small` repo missing upstream | Verified in phase 2; key errors cleanly if absent |
+| `generate()` hang (openvino.genai#1950) | Watchdog timeout, actionable error message |
+| Windows DLL load errors in pipx venvs (#407 class) | Exact-pin trio; doctor check gives the diagnosis path |
+
+## References
+
+- Research briefs (this session): OpenVINO GenAI API surface, Arc 140T hardware, rejected-alternatives verification, pitfall inventory
+- [OpenVINO GenAI speech recognition guide](https://openvinotoolkit.github.io/openvino.genai/docs/use-cases/speech-recognition/)
+- [OpenVINO/whisper-medium-int8-ov](https://huggingface.co/OpenVINO/whisper-medium-int8-ov)
+- [openvino.genai#2069 beam search broken](https://github.com/openvinotoolkit/openvino.genai/issues/2069) · [#1950 generate hang](https://github.com/openvinotoolkit/openvino.genai/issues/1950) · [#407 tokenizers DLL](https://github.com/openvinotoolkit/openvino.genai/issues/407)
+- [GenAI ABI/dependency rules](https://docs.openvino.ai/nightly/get-started/install-openvino/configurations/genai-dependencies.html)
+- Pattern precedent: `whisper_engine_cpp.py`, `docs/gpu-setup.md` AMD section
