@@ -51,15 +51,20 @@ mirror-the-API pattern. This plan adds a third engine the same way.
 - [x] Record numbers in this plan's Status section
 - [x] **Gate: PASSED** — GPU RTF 0.09, 5.4x faster than the current faster-whisper CPU engine (see Status)
 
-2. **Engine: `whisper_engine_openvino.py`**
-- [ ] New class `WhisperEngineOpenVino` mirroring `WhisperEngine`'s public API exactly: same `__init__` signature, `transcribe_audio()`, `change_model()`, `is_loading()` (see Implementation Details)
-- [ ] Model-key → HF repo mapping table (`medium` → `OpenVINO/whisper-medium-int8-ov` etc.), `compute_type` selecting int8 vs fp16 repo variant; unmapped keys raise with a list of supported ones
-- [ ] Download via `huggingface_hub.snapshot_download` with the same "first run only" size-hint messaging as the other engines; resolve to the local snapshot dir
-- [ ] Build `WhisperPipeline(model_dir, device, CACHE_DIR=<appdata>/openvino_cache)`; print a one-time "Preparing model for GPU — first launch can take a few minutes" when the compile cache is cold
-- [ ] Generation config: language (`auto` → autodetect), task, `initial_prompt`, `hotwords` (join list like `WhisperEngine` does); clamp to greedy decoding regardless of `beam_size`
-- [ ] Watchdog: run `generate()` on a worker thread, `join(timeout)`; on timeout log, print an actionable error (suggest restart / `device: cpu`), return None
-- [ ] `_warmup()` with 1 s silence so the GPU compile happens at startup, not on the first real dictation
-- [ ] `change_model()`: synchronous rebuild with progress callbacks (mirror `WhisperEngineCpp`)
+2. **Engine: `whisper_engine_openvino.py`** ✅ complete, smoke-tested on the 140T
+- [x] New class `WhisperEngineOpenVino` mirroring `WhisperEngine`'s public API exactly: same `__init__` signature, `transcribe_audio()`, `change_model()`, `is_loading()` (see Implementation Details)
+- [x] Model-key → HF repo mapping table (`medium` → `OpenVINO/whisper-medium-int8-ov` etc.), `compute_type` selecting int8 vs fp16 repo variant; unmapped keys raise with a list of supported ones
+  - ✅ Verified upstream catalog: ALL standard keys exist incl. multilingual `small` (flagged gap closed); only the app's three `distil-*` keys have no OpenVINO twin → clean error
+- [x] Download via `huggingface_hub.snapshot_download` with the same "first run only" size-hint messaging as the other engines; resolve to the local snapshot dir
+  - ✅ Cache detection via `local_files_only=True` probe; registry local-path entries win over the catalog (readies phase 4)
+- [x] Build `WhisperPipeline(model_dir, device, CACHE_DIR=<appdata>/openvino_cache)`; print a one-time "Preparing model for GPU — first launch can take a few minutes" when the compile cache is cold
+- [x] Generation config: language (`auto` → autodetect), task, `initial_prompt`, `hotwords` (join list like `WhisperEngine` does); clamp to greedy decoding regardless of `beam_size`
+  - ✅ Fields verified live on `WhisperGenerationConfig` (2026.3.0); language passed in `<|xx|>` token form
+- [x] Watchdog: run `generate()` on a worker thread, `join(timeout)`; on timeout log, print an actionable error (suggest restart / `device: cpu`), return None
+- [x] `_warmup()` with 1 s silence so the GPU compile happens at startup, not on the first real dictation
+- [x] `change_model()`: synchronous rebuild with progress callbacks (mirror `WhisperEngineCpp`)
+  - ✅ Smoke test: medium→base switch incl. fresh download worked; base transcribes in 0.4 s
+  - ⚠️ New finding: with `hotwords` configured, silence hallucinates the hotwords themselves ("OpenVINO, Whisper") — VAD pre-check is even more load-bearing than assumed
 
 3. **Wiring: config, main, packaging**
 - [ ] `main.py:setup_whisper_engine()`: `backend == 'openvino'` branch, identical kwargs to the other two
