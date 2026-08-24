@@ -1671,6 +1671,63 @@ class OpenVinoBackendTests(unittest.TestCase):
         self.assertNotIn(('whisper', 'backend'), cm2.settings)  # backend untouched
 
 
+class OpenVinoLongFormSplitTests(unittest.TestCase):
+    # openvino-genai's internal >30s sliding window drops or loops the final
+    # short window (reproduced on 2026.3.0), so the engine splits long audio at
+    # quiet points itself and decodes each chunk on the single-window path.
+    def _audio_with_pauses(self, seconds):
+        import numpy as np
+        rng_free = np.tile(
+            np.sin(np.linspace(0, 300.0, 16000)).astype("float32") * 0.3, seconds)
+        # Carve a distinct quiet pause every ~9s so the splitter has real minima
+        for pause_at in range(9, seconds, 9):
+            start = pause_at * 16000
+            rng_free[start:start + 8000] = 0.001
+        return rng_free
+
+    def test_short_audio_untouched(self):
+        try:
+            import numpy as np
+            from whisper_key.whisper_engine_openvino import _split_at_quiet_points
+        except Exception:
+            self.skipTest("whisper_engine_openvino not importable (numpy absent)")
+        audio = np.ones(30 * 16000, dtype="float32")
+        chunks = _split_at_quiet_points(audio)
+        self.assertEqual(len(chunks), 1)
+        self.assertIs(chunks[0], audio)  # no copy for the common case
+
+    def test_long_audio_splits_at_quiet_points_without_loss(self):
+        try:
+            from whisper_key.whisper_engine_openvino import _split_at_quiet_points
+        except Exception:
+            self.skipTest("whisper_engine_openvino not importable (numpy absent)")
+        for seconds in (31, 35, 61, 95):
+            audio = self._audio_with_pauses(seconds)
+            chunks = _split_at_quiet_points(audio)
+            self.assertTrue(all(len(c) <= 30 * 16000 for c in chunks),
+                            f"{seconds}s produced an over-long chunk")
+            self.assertTrue(all(len(c) >= int(0.3 * 16000) for c in chunks),
+                            f"{seconds}s produced a sub-word sliver")
+            # No samples may be lost between chunks (except a dropped sliver)
+            total = sum(len(c) for c in chunks)
+            self.assertGreaterEqual(total, len(audio) - int(0.3 * 16000))
+
+    def test_cut_lands_in_a_pause(self):
+        try:
+            import numpy as np
+            from whisper_key.whisper_engine_openvino import _split_at_quiet_points
+        except Exception:
+            self.skipTest("whisper_engine_openvino not importable (numpy absent)")
+        audio = self._audio_with_pauses(35)
+        chunks = _split_at_quiet_points(audio)
+        self.assertEqual(len(chunks), 2)
+        # The cut must land inside the quiet region at ~27s, not blindly at 30s
+        cut_sample = len(chunks[0])
+        cut_second = cut_sample / 16000.0
+        self.assertLess(abs(cut_second - 27.25), 1.0,
+                        f"cut at {cut_second:.1f}s missed the engineered pause")
+
+
 class OpenVinoModelTransferTests(unittest.TestCase):
     # Offline export/import must handle OpenVINO IR bundles like CT2 ones.
     def _stub_openvino_model(self, root, name="whisper-local-model-medium"):

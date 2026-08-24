@@ -64,6 +64,40 @@ _DEVICE_MAP = {
 }
 
 
+# Whisper decodes in 30-second windows. Cutting blindly at 30s can land mid-word,
+# so each cut goes at the quietest 200ms found in the trailing part of the window
+# — in dictation that's almost always a breath or pause between phrases.
+_SAMPLE_RATE = 16000
+_WINDOW_SECONDS = 30.0
+_CUT_SEARCH_SECONDS = 10.0
+
+
+def _split_at_quiet_points(audio: np.ndarray) -> list:
+    window_samples = int(_WINDOW_SECONDS * _SAMPLE_RATE)
+    if len(audio) <= window_samples:
+        return [audio]
+
+    chunks = []
+    start = 0
+    while len(audio) - start > window_samples:
+        window_end = start + window_samples
+        search_start = window_end - int(_CUT_SEARCH_SECONDS * _SAMPLE_RATE)
+        frame = int(0.2 * _SAMPLE_RATE)
+        segment = audio[search_start:window_end]
+        frame_count = len(segment) // frame
+        frames = segment[: frame_count * frame].reshape(frame_count, frame)
+        rms_per_frame = np.sqrt((frames ** 2).mean(axis=1))
+        quietest = int(rms_per_frame.argmin())
+        cut = search_start + quietest * frame + frame // 2
+        chunks.append(audio[start:cut])
+        start = cut
+    chunks.append(audio[start:])
+
+    # A sub-word sliver at the end (hotkey released mid-breath) only invites a
+    # hallucinated token; drop anything shorter than 0.3s.
+    return [c for c in chunks if len(c) >= int(0.3 * _SAMPLE_RATE)]
+
+
 class WhisperEngineOpenVino:
     def __init__(self,
                  model_key: str = "base",
@@ -235,11 +269,20 @@ class WhisperEngineOpenVino:
             audio_data = audio_data.astype(np.float32)
 
             start_time = time.time()
-            result = self._generate_with_watchdog(audio_data)
-            if result is None:
-                return None
 
-            transcribed_text = " ".join(result.texts).strip() if result.texts else ""
+            # WhisperPipeline's internal long-form mode mishandles a short final
+            # window after the 30s boundary (tail dropped, or a repetition loop —
+            # reproduced on 2026.3.0). Never hand it >30s: split at quiet points
+            # ourselves and decode each chunk through the reliable one-window path.
+            texts = []
+            for chunk in _split_at_quiet_points(audio_data):
+                result = self._generate_with_watchdog(chunk)
+                if result is None:
+                    return None
+                if result.texts:
+                    texts.extend(t.strip() for t in result.texts if t.strip())
+
+            transcribed_text = " ".join(texts).strip()
 
             transcription_time = time.time() - start_time
             print(f"   ✓ Transcription completed in {transcription_time:.1f} seconds")
