@@ -1584,5 +1584,152 @@ class StreamingDeliveryWorkerTests(unittest.TestCase):
         self.assertEqual(delivered, ["a "])
 
 
+class OpenVinoBackendTests(unittest.TestCase):
+    # The Intel GPU backend (whisper.backend: openvino). Catalog/config logic is
+    # testable everywhere; anything touching openvino_genai skips when absent.
+    def test_optional_dep_declared_with_exact_pin(self):
+        import tomllib
+        with open(ROOT / "pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        extras = data.get("project", {}).get("optional-dependencies", {})
+        self.assertIn("openvino", extras)
+        # The openvino/genai/tokenizers trio is ABI-locked; a range pin here
+        # would eventually install a mismatched trio and fail at import time.
+        self.assertTrue(any(d.startswith("openvino-genai==") for d in extras["openvino"]))
+
+    def test_model_catalog_covers_standard_models_only(self):
+        try:
+            from whisper_key.whisper_engine_openvino import (_PRECISION_SUFFIX,
+                                                             _SUPPORTED_MODELS)
+        except Exception:
+            self.skipTest("whisper_engine_openvino not importable (numpy absent)")
+        for key in ("tiny", "base", "small", "medium", "large", "large-v3-turbo",
+                    "tiny.en", "base.en", "small.en", "medium.en"):
+            self.assertIn(key, _SUPPORTED_MODELS)
+        # 'large' means large-v3, matching faster-whisper's convention
+        self.assertEqual(_SUPPORTED_MODELS["large"], "whisper-large-v3")
+        # distil models have no OpenVINO twin — must NOT be silently mapped
+        self.assertNotIn("distil-small.en", _SUPPORTED_MODELS)
+        self.assertEqual(_PRECISION_SUFFIX["int8"], "int8")
+        self.assertEqual(_PRECISION_SUFFIX["float16"], "fp16")
+
+    def test_device_map_tolerates_leftover_cuda(self):
+        try:
+            from whisper_key.whisper_engine_openvino import _DEVICE_MAP
+        except Exception:
+            self.skipTest("whisper_engine_openvino not importable (numpy absent)")
+        self.assertEqual(_DEVICE_MAP["gpu"], "GPU")
+        self.assertEqual(_DEVICE_MAP["cuda"], "GPU")  # backend switch, old device value
+        self.assertEqual(_DEVICE_MAP["npu"], "NPU")
+        self.assertEqual(_DEVICE_MAP["auto"], "AUTO")
+
+    def test_unsupported_model_raises_with_supported_list(self):
+        try:
+            import openvino_genai  # noqa: F401
+            from whisper_key.whisper_engine_openvino import WhisperEngineOpenVino
+        except Exception:
+            self.skipTest("openvino-genai not installed")
+        with self.assertRaises(RuntimeError) as ctx:
+            WhisperEngineOpenVino(model_key="distil-small.en", device="cpu")
+        self.assertIn("no pre-converted OpenVINO variant", str(ctx.exception))
+        self.assertIn("medium", str(ctx.exception))  # names the alternatives
+
+    def test_config_defaults_document_openvino_backend(self):
+        text = (ROOT / "src" / "whisper_key" / "config.defaults.yaml").read_text(encoding="utf-8")
+        self.assertIn("openvino", text)
+
+    def test_intel_gpu_classification(self):
+        if sys.platform != "win32":
+            self.skipTest("Windows-only platform module")
+        from whisper_key.platform.windows.gpu import _classify_gpu
+        self.assertEqual(_classify_gpu("intel", "Intel(R) Arc(TM) Pro 140T GPU (16GB)"), "intel")
+        self.assertEqual(_classify_gpu("intel", "Intel(R) Iris(R) Xe Graphics"), "intel")
+        # Old UHD iGPUs run OpenVINO too slowly to promote via onboarding
+        self.assertIsNone(_classify_gpu("intel", "Intel(R) UHD Graphics 630"))
+        # NVIDIA/AMD classification untouched
+        self.assertEqual(_classify_gpu("nvidia", "NVIDIA GeForce RTX 4070"), "nvidia")
+        self.assertEqual(_classify_gpu("amd", "AMD Radeon RX 6800"), "amd_rdna2+")
+
+    def test_onboarding_intel_config_flip(self):
+        from whisper_key.onboarding import _enable_gpu_config
+
+        class FakeCM:
+            def __init__(self):
+                self.settings = {}
+
+            def update_user_setting(self, section, key, value):
+                self.settings[(section, key)] = value
+
+        cm = FakeCM()
+        _enable_gpu_config('intel', cm)
+        self.assertEqual(cm.settings[('whisper', 'backend')], 'openvino')
+        self.assertEqual(cm.settings[('whisper', 'device')], 'gpu')
+        self.assertEqual(cm.settings[('whisper', 'compute_type')], 'int8')
+        cm2 = FakeCM()
+        _enable_gpu_config('nvidia', cm2)
+        self.assertEqual(cm2.settings[('whisper', 'device')], 'cuda')
+        self.assertNotIn(('whisper', 'backend'), cm2.settings)  # backend untouched
+
+
+class OpenVinoModelTransferTests(unittest.TestCase):
+    # Offline export/import must handle OpenVINO IR bundles like CT2 ones.
+    def _stub_openvino_model(self, root, name="whisper-local-model-medium"):
+        from pathlib import Path
+        folder = Path(root) / name
+        folder.mkdir(parents=True)
+        for f in ("openvino_encoder_model.xml", "openvino_encoder_model.bin",
+                  "openvino_decoder_model.xml", "openvino_decoder_model.bin",
+                  "config.json"):
+            (folder / f).write_bytes(b"stub")
+        return folder
+
+    def test_detect_model_format(self):
+        import tempfile
+        from pathlib import Path
+        from whisper_key.model_transfer import _detect_model_format
+        with tempfile.TemporaryDirectory() as d:
+            ov = self._stub_openvino_model(d)
+            self.assertEqual(_detect_model_format(ov), "openvino")
+            ct2 = Path(d) / "ct2"
+            ct2.mkdir()
+            (ct2 / "model.bin").write_bytes(b"w")
+            (ct2 / "config.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(_detect_model_format(ct2), "ct2")
+            empty = Path(d) / "empty"
+            empty.mkdir()
+            self.assertIsNone(_detect_model_format(empty))
+
+    def test_import_accepts_openvino_bundle(self):
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from ruamel.yaml import YAML
+        from whisper_key import model_transfer
+        with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as appdata:
+            bundle = self._stub_openvino_model(src)
+            with mock.patch.object(model_transfer, 'get_user_app_data_path', return_value=appdata):
+                rc = model_transfer.import_model(str(bundle))
+            self.assertEqual(rc, 0)
+            data = YAML().load((Path(appdata) / "user_settings.yaml").read_text(encoding="utf-8"))
+            self.assertEqual(data["whisper"]["model"], "local-medium")
+            source = Path(data["whisper"]["models"]["local-medium"]["source"])
+            self.assertTrue((source / "openvino_encoder_model.xml").exists())
+
+    def test_openvino_cache_folder_derivation(self):
+        from whisper_key import model_transfer
+        try:
+            folder = model_transfer._openvino_cache_folder(
+                "medium", {"compute_type": "int8"})
+        except Exception:
+            self.skipTest("whisper_engine_openvino not importable (numpy absent)")
+        self.assertEqual(folder, "models--OpenVINO--whisper-medium-int8-ov")
+        self.assertEqual(
+            model_transfer._openvino_cache_folder("base", {"compute_type": "float16"}),
+            "models--OpenVINO--whisper-base-fp16-ov")
+        # distil models have no OpenVINO variant → export must refuse, not guess
+        self.assertIsNone(
+            model_transfer._openvino_cache_folder("distil-small.en", {}))
+
+
 if __name__ == "__main__":
     unittest.main()

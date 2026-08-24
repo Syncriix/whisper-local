@@ -98,9 +98,11 @@ mirror-the-API pattern. This plan adds a third engine the same way.
 - [x] macOS mirror stays a no-op (already is)
 
 7. **Verification**
-- [ ] Unit tests: model-key mapping, import-error message when the extra isn't installed, device-string mapping (no openvino needed in CI — mirror the lean-env skip pattern from the model-transfer tests)
-- [ ] `/test-from-wsl` startup check with backend unset (no regression)
-- [ ] **Manual test on the 140T machine (ask user):** full dictation loop on `medium` — hotkey, speak, text at cursor; model switch via tray; silence press; a >30 s dictation
+- [x] Unit tests: model-key mapping, import-error message when the extra isn't installed, device-string mapping (no openvino needed in CI — mirror the lean-env skip pattern from the model-transfer tests)
+  - ✅ 10 new tests (catalog, device map, unsupported-model error, config docs, Intel classification, onboarding config flip, IR format detection, OV import round-trip, cache-folder derivation); full suite: 157 tests, 0 failures
+- [x] Startup check with backend unset (no regression) — run natively (not WSL) against a scratch APPDATA: default config boots to "Whisper Local ready!" on CPU
+  - ✅ Second launch with `backend: openvino`, `device: gpu`, `model: medium`: full app boots to ready — engine load, tray, hotkeys all live on the Arc GPU
+- [ ] **Manual test on the 140T machine (user):** full dictation loop on `medium` — hotkey, speak, text at cursor; model switch via tray; silence press; a >30 s dictation
 
 ## Implementation Details
 
