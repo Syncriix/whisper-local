@@ -21,11 +21,24 @@ from .utils import get_user_app_data_path
 
 logger = logging.getLogger(__name__)
 
-# A CTranslate2 Whisper model is these files. model.bin and config.json are
-# mandatory; the tokenizer/vocabulary pair varies slightly between conversions,
-# so they're copied when present rather than demanded.
-REQUIRED_FILES = ("model.bin", "config.json")
+# Two model formats travel through here. A CTranslate2 Whisper model (the
+# faster_whisper backend) is identified by model.bin + config.json; an OpenVINO
+# IR model (the openvino backend) by its encoder/decoder XML pair. Tokenizer
+# files vary between conversions, so they're copied when present, not demanded.
+CT2_MARKERS = ("model.bin", "config.json")
+OPENVINO_MARKERS = ("openvino_encoder_model.xml", "openvino_decoder_model.xml")
+# One weight file per format proves a snapshot is complete, not a partial download
+WEIGHT_FILES = ("model.bin", "openvino_encoder_model.bin")
 USER_SETTINGS = "user_settings.yaml"
+
+
+# Which model format a folder holds: 'ct2', 'openvino', or None if neither.
+def _detect_model_format(folder: Path):
+    if all((folder / f).exists() for f in CT2_MARKERS):
+        return "ct2"
+    if all((folder / f).exists() for f in OPENVINO_MARKERS):
+        return "openvino"
+    return None
 
 
 def _hf_cache_root() -> Path:
@@ -47,9 +60,22 @@ def _find_cached_snapshot(model_key: str, cache_folder: str):
     # Prefer a snapshot that actually contains the weights — a partial/aborted
     # download can leave an empty revision directory behind.
     for d in sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True):
-        if (d / "model.bin").exists():
+        if any((d / w).exists() for w in WEIGHT_FILES):
             return d
     return None
+
+
+# HF-cache folder name for the OpenVINO variant of a model key, derived from
+# the engine's own catalog so the two can't drift apart. None for keys with no
+# OpenVINO twin (the distil-* models).
+def _openvino_cache_folder(model_key: str, whisper_cfg: dict):
+    from .whisper_engine_openvino import _PRECISION_SUFFIX, _SUPPORTED_MODELS
+
+    base_name = _SUPPORTED_MODELS.get(model_key)
+    if base_name is None:
+        return None
+    precision = _PRECISION_SUFFIX.get(whisper_cfg.get("compute_type", "int8"), "int8")
+    return f"models--OpenVINO--{base_name}-{precision}-ov"
 
 
 # Copy every file in the snapshot into `dest`. HF stores blobs once and symlinks
@@ -116,11 +142,23 @@ def export_model(dest: str = None) -> int:
     model = registry.get_model(model_key)
     if model and model.is_local_path:
         snapshot = Path(model.source)
-        if not (snapshot / "model.bin").exists():
-            print(f"ERROR: '{model_key}' points at {snapshot}, but no model.bin is there.")
+        if _detect_model_format(snapshot) is None:
+            print(f"ERROR: '{model_key}' points at {snapshot}, but no model files are there.")
             return 1
     else:
-        snapshot = _find_cached_snapshot(model_key, registry.get_cache_folder(model_key))
+        # The active backend decides WHICH cached artifact "medium" means: the
+        # CT2 conversion for faster_whisper, the OpenVINO IR for openvino.
+        # Exporting what the machine actually runs is the only version that is
+        # guaranteed present and guaranteed useful on the target machine.
+        backend = whisper_cfg.get("backend", "faster_whisper")
+        if backend == "openvino":
+            cache_folder = _openvino_cache_folder(model_key, whisper_cfg)
+            if cache_folder is None:
+                print(f"ERROR: Model '{model_key}' has no OpenVINO variant to export.")
+                return 1
+        else:
+            cache_folder = registry.get_cache_folder(model_key)
+        snapshot = _find_cached_snapshot(model_key, cache_folder)
         if snapshot is None:
             print(f"ERROR: Model '{model_key}' isn't downloaded on this machine yet.")
             print("   Run Whisper Local once (or --selftest) on a machine WITH internet,")
@@ -165,10 +203,11 @@ def import_model(src: str, keep_in_place: bool = False) -> int:
     if not source.is_dir():
         print(f"ERROR: Not a folder: {source}")
         return 1
-    missing = [f for f in REQUIRED_FILES if not (source / f).exists()]
-    if missing:
-        print(f"ERROR: {source} doesn't look like a Whisper model. Missing: {', '.join(missing)}")
-        print("   Expected the folder produced by --export-model.")
+    if _detect_model_format(source) is None:
+        print(f"ERROR: {source} doesn't look like a Whisper model.")
+        print(f"   Expected the folder produced by --export-model, containing either")
+        print(f"   {' + '.join(CT2_MARKERS)} (faster_whisper) or "
+              f"{' + '.join(OPENVINO_MARKERS)} (openvino).")
         return 1
 
     model_name = source.name.replace("whisper-local-model-", "") or "imported"

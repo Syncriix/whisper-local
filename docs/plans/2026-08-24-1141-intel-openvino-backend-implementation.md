@@ -74,9 +74,12 @@ mirror-the-API pattern. This plan adds a third engine the same way.
 - [x] `pyproject.toml`: `openvino = ["openvino-genai==2026.3.0.0"]` extra; confirm the resolved `openvino`/`openvino-tokenizers` versions match exactly (ABI lockstep)
   - ✅ Observed pip resolve the matched 2026.3.0 trio during the spike install
 
-4. **Offline model transfer**
-- [ ] `model_transfer.py`: recognize an OpenVINO IR snapshot (`openvino_encoder_model.xml/.bin`, `openvino_decoder_model.xml/.bin`, tokenizer files) alongside the CT2 `model.bin` check so `--export-model` / `--import-model` work for `OpenVINO/*-ov` models — the HF-blocked-network story is a headline feature of this fork and must not silently exclude the new backend
-- [ ] `--import-model` writes the local dir into config the same way; engine accepts a local path as model source
+4. **Offline model transfer** ✅ complete, round-trip tested
+- [x] `model_transfer.py`: recognize an OpenVINO IR snapshot (`openvino_encoder_model.xml/.bin`, `openvino_decoder_model.xml/.bin`, tokenizer files) alongside the CT2 `model.bin` check so `--export-model` / `--import-model` work for `OpenVINO/*-ov` models — the HF-blocked-network story is a headline feature of this fork and must not silently exclude the new backend
+  - ✅ Format detection (`_detect_model_format`) covers both; export is backend-aware — with `backend: openvino` it exports the OpenVINO IR cache entry (folder derived from the engine's own catalog), otherwise CT2 as before
+  - ✅ Round trip verified with scratch APPDATA: export 21 files / 784 MB (symlinks resolved), import registers `local-medium`, bogus folders rejected with a two-format message
+- [x] `--import-model` writes the local dir into config the same way; engine accepts a local path as model source
+  - ✅ Engine loaded the imported folder via the registry local-path branch and transcribed at full GPU speed (1.5 s)
 
 5. **Docs & diagnostics**
 - [ ] `gpu-setup.md`: new **"Intel (OpenVINO)"** section — requirements (Intel iGPU/Arc + current graphics driver, nothing else), pip/pipx install of the extra, config snippet (`backend: openvino`, `device: gpu`, `compute_type: int8`), first-launch compile note, limitations (greedy decoding, `device: cpu` fallback), measured performance from the spike
