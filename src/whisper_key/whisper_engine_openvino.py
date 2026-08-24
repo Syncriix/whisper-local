@@ -165,8 +165,11 @@ class WhisperEngineOpenVino:
 
         base_name = _SUPPORTED_MODELS.get(model_key)
         if not base_name:
+            # ValueError, not RuntimeError: a config problem, not a device
+            # failure — it must NOT be routed into main.py's GPU-recovery UX
+            # (which catches RuntimeError and offers a pointless CPU retry).
             supported = ", ".join(sorted(_SUPPORTED_MODELS))
-            raise RuntimeError(
+            raise ValueError(
                 f"Model '{model_key}' has no pre-converted OpenVINO variant. "
                 f"Supported models for the openvino backend: {supported}"
             )
@@ -270,17 +273,33 @@ class WhisperEngineOpenVino:
 
             start_time = time.time()
 
+            # Rebuilt on every call: state_manager mutates language / task /
+            # initial_prompt on the live engine (profiles, per-app rules,
+            # selection seeding, language voice commands), and the other two
+            # backends read those attributes at transcribe time. Baking them in
+            # at load time would silently ignore every mid-session change.
+            self._generation_config = self._build_generation_config()
+
             # WhisperPipeline's internal long-form mode mishandles a short final
             # window after the 30s boundary (tail dropped, or a repetition loop —
             # reproduced on 2026.3.0). Never hand it >30s: split at quiet points
             # ourselves and decode each chunk through the reliable one-window path.
             texts = []
+            timed_out = False
             for chunk in _split_at_quiet_points(audio_data):
                 result = self._generate_with_watchdog(chunk)
                 if result is None:
-                    return None
+                    timed_out = True
+                    break
                 if result.texts:
                     texts.extend(t.strip() for t in result.texts if t.strip())
+
+            # A hang on a later chunk shouldn't cost the user the minutes that
+            # already decoded — deliver the completed portion instead of nothing.
+            if timed_out:
+                if not texts:
+                    return None
+                print("   ⚠ Delivering the portion transcribed before the timeout.")
 
             transcribed_text = " ".join(texts).strip()
 
@@ -342,8 +361,10 @@ class WhisperEngineOpenVino:
     # Model switching
     # ------------------------------------------------------------------
 
-    # Synchronous like the whisper.cpp backend: OpenVINO loads are seconds, not
-    # the multi-minute CT2 downloads that justified WhisperEngine's async path.
+    # Synchronous like the whisper.cpp backend. Loading a cached model takes
+    # seconds; a first-time switch to an uncached model does block the caller
+    # on the HF download (same trade-off whisper.cpp made) — the download
+    # message printed by _download_if_needed is the user's progress feedback.
     def change_model(self,
                      new_model_key: str,
                      progress_callback: Optional[Callable[[str], None]] = None) -> bool:

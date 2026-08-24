@@ -3,8 +3,10 @@
 # Loads the model once at startup and warms it with a dummy transcription so the
 # user's first real recording isn't slowed by lazy initialisation. Model switches
 # happen on a background thread with progress callbacks so the UI stays live.
-# `whisper_engine_cpp.py` mirrors this class's API for the opt-in whisper.cpp
-# backend — keep the two signatures in sync.
+# `whisper_engine_cpp.py` and `whisper_engine_openvino.py` mirror this class's
+# API for the opt-in backends — the shared contract (including reading language/
+# task/initial_prompt at transcribe time, since state_manager mutates them on
+# the live engine) is enforced by EngineContractTests in tests/test_smoke.py.
 
 import logging
 import time

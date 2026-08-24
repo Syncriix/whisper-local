@@ -222,8 +222,16 @@ def _openvino_engine_with_recovery(whisper_config, vad_manager, model_registry, 
     except RuntimeError as e:
         # Same recovery UX as a failed CUDA setup: offer to re-run GPU setup or
         # continue this session on CPU (the openvino backend runs fine on CPU).
-        if whisper_config['device'] not in ('gpu', 'auto') or not config_manager:
+        # 'cuda' is included because the engine's device map tolerates it as a
+        # leftover from a backend switch — those users deserve recovery too.
+        if whisper_config['device'] not in ('gpu', 'auto', 'cuda') or not config_manager:
             raise
+        if isinstance(e.__cause__, ImportError):
+            # openvino-genai itself is missing (e.g. a rebuilt venv). Retrying
+            # the openvino backend on CPU would raise the exact same error, so
+            # the "continue on CPU" session falls back to the default engine.
+            # The "re-run GPU setup" option still reinstalls the package.
+            whisper_config['backend'] = 'faster_whisper'
         return _handle_gpu_failure(e, whisper_config, vad_manager, model_registry, log_transcriptions, config_manager)
 
 def setup_clipboard_manager(clipboard_config):

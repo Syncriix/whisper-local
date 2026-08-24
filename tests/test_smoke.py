@@ -1629,7 +1629,10 @@ class OpenVinoBackendTests(unittest.TestCase):
             from whisper_key.whisper_engine_openvino import WhisperEngineOpenVino
         except Exception:
             self.skipTest("openvino-genai not installed")
-        with self.assertRaises(RuntimeError) as ctx:
+        # ValueError (config problem), NOT RuntimeError — main.py routes
+        # RuntimeError into the GPU-failure recovery UX, which would misdiagnose
+        # a catalog miss as a broken GPU and offer a pointless CPU retry.
+        with self.assertRaises(ValueError) as ctx:
             WhisperEngineOpenVino(model_key="distil-small.en", device="cpu")
         self.assertIn("no pre-converted OpenVINO variant", str(ctx.exception))
         self.assertIn("medium", str(ctx.exception))  # names the alternatives
@@ -1786,6 +1789,174 @@ class OpenVinoModelTransferTests(unittest.TestCase):
         # distil models have no OpenVINO variant → export must refuse, not guess
         self.assertIsNone(
             model_transfer._openvino_cache_folder("distil-small.en", {}))
+
+
+class EngineContractTests(unittest.TestCase):
+    # All backends share one implicit contract: state_manager mutates language /
+    # task / initial_prompt on the LIVE engine before recordings (profiles,
+    # per-app rules, selection seeding, language voice commands), so every
+    # engine must read those attributes at transcribe time — never bake them in
+    # at load time. Each test drives an engine with a fake underlying model and
+    # asserts a post-construction mutation reaches the actual decode call.
+    # A new backend gets a test here or it WILL silently drop those features.
+
+    def _mutate(self, engine):
+        engine.language = "de"
+        engine.task = "translate"
+        engine.initial_prompt = "Grüezi"
+
+    # The engines print unicode progress marks (✓/⚠) meant for the app's UTF-8
+    # console; captured here so a cp1252 test pipe can't turn them into
+    # UnicodeEncodeError — and so the suite output stays clean.
+    def _transcribe(self, engine, audio):
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            return engine.transcribe_audio(audio)
+
+    def test_faster_whisper_reads_attributes_at_transcribe_time(self):
+        import logging
+        try:
+            import numpy as np
+            from whisper_key.whisper_engine import WhisperEngine
+        except Exception:
+            self.skipTest("faster-whisper not importable")
+
+        captured = {}
+
+        class FakeModel:
+            def transcribe(self, audio, **kwargs):
+                captured.update(kwargs)
+                seg = type("Seg", (), {"text": "hallo"})()
+                info = type("Info", (), {"language": "de", "language_probability": 1.0})()
+                return [seg], info
+
+        engine = WhisperEngine.__new__(WhisperEngine)
+        engine.model = FakeModel()
+        engine.model_key = "base"
+        engine.vad_manager = None
+        engine.logger = logging.getLogger("test")
+        engine.log_transcriptions = False
+        engine.beam_size = 1
+        engine.hotwords = None
+        self._mutate(engine)
+
+        self.assertIsNone(self._transcribe(engine, None))
+        self.assertEqual(self._transcribe(engine, np.ones(16000, dtype="float32")), "hallo")
+        self.assertEqual(captured["language"], "de")
+        self.assertEqual(captured["task"], "translate")
+        self.assertEqual(captured["initial_prompt"], "Grüezi")
+        self.assertFalse(engine.change_model("base"))  # same key: falsy no-op
+
+    def test_whisper_cpp_reads_attributes_at_transcribe_time(self):
+        import logging
+        try:
+            import numpy as np
+            from whisper_key.whisper_engine_cpp import WhisperEngineCpp
+        except Exception:
+            self.skipTest("whisper_engine_cpp not importable (numpy absent)")
+
+        captured = {}
+
+        class FakeModel:
+            def transcribe(self, audio, **kwargs):
+                captured.update(kwargs)
+                return ["hallo"]
+
+        engine = WhisperEngineCpp.__new__(WhisperEngineCpp)
+        engine.model = FakeModel()
+        engine.model_key = "base"
+        engine.vad_manager = None
+        engine.logger = logging.getLogger("test")
+        engine.log_transcriptions = False
+        self._mutate(engine)
+
+        self.assertIsNone(self._transcribe(engine, None))
+        self.assertEqual(self._transcribe(engine, np.ones(16000, dtype="float32")), "hallo")
+        self.assertEqual(captured["language"], "de")
+        self.assertTrue(captured["translate"])
+        self.assertFalse(engine.change_model("base"))  # same key: falsy no-op
+
+    def test_openvino_rebuilds_generation_config_each_call(self):
+        import logging
+        try:
+            import numpy as np
+            from whisper_key.whisper_engine_openvino import WhisperEngineOpenVino
+        except Exception:
+            self.skipTest("whisper_engine_openvino not importable (numpy absent)")
+
+        captured = {}
+
+        class FakePipeline:
+            def get_generation_config(self):
+                return type("Cfg", (), {})()  # fresh, attribute-less config
+
+            def generate(self, audio, config):
+                captured["config"] = config
+                return type("R", (), {"texts": ["hallo"]})()
+
+        engine = WhisperEngineOpenVino.__new__(WhisperEngineOpenVino)
+        engine.pipeline = FakePipeline()
+        engine.model_key = "base"
+        engine.vad_manager = None
+        engine.logger = logging.getLogger("test")
+        engine.log_transcriptions = False
+        engine.hotwords = None
+        self._mutate(engine)
+
+        self.assertIsNone(self._transcribe(engine, None))
+        self.assertEqual(self._transcribe(engine, np.ones(16000, dtype="float32")), "hallo")
+        cfg = captured["config"]
+        self.assertEqual(cfg.language, "<|de|>")
+        self.assertEqual(cfg.task, "translate")
+        self.assertEqual(cfg.initial_prompt, "Grüezi")
+        self.assertFalse(engine.change_model("base"))  # same key: falsy no-op
+
+        # A second call must track a mid-session change — the config is rebuilt
+        # per call, not frozen at load (the bug that motivated this suite).
+        engine.language = "en"
+        engine.task = "transcribe"
+        self._transcribe(engine, np.ones(16000, dtype="float32"))
+        cfg2 = captured["config"]
+        self.assertEqual(cfg2.language, "<|en|>")
+        self.assertEqual(cfg2.task, "transcribe")
+
+    def test_openvino_delivers_partial_text_on_timeout(self):
+        import logging
+        try:
+            import numpy as np
+            from whisper_key.whisper_engine_openvino import WhisperEngineOpenVino
+        except Exception:
+            self.skipTest("whisper_engine_openvino not importable (numpy absent)")
+
+        class FakePipeline:
+            def get_generation_config(self):
+                return type("Cfg", (), {})()
+
+        engine = WhisperEngineOpenVino.__new__(WhisperEngineOpenVino)
+        engine.pipeline = FakePipeline()
+        engine.vad_manager = None
+        engine.logger = logging.getLogger("test")
+        engine.log_transcriptions = False
+        engine.hotwords = None
+        engine.language = None
+        engine.task = "transcribe"
+        engine.initial_prompt = None
+
+        # First chunk decodes, second hits the watchdog timeout (returns None).
+        # The user must still get the first chunk's text, not nothing.
+        calls = {"n": 0}
+
+        def fake_watchdog(chunk):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return type("R", (), {"texts": ["first part"]})()
+            return None
+
+        engine._generate_with_watchdog = fake_watchdog
+        audio = np.ones(35 * 16000, dtype="float32")  # splits into two chunks
+        self.assertEqual(self._transcribe(engine, audio), "first part")
+        self.assertEqual(calls["n"], 2)
 
 
 if __name__ == "__main__":

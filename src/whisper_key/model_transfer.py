@@ -203,7 +203,8 @@ def import_model(src: str, keep_in_place: bool = False) -> int:
     if not source.is_dir():
         print(f"ERROR: Not a folder: {source}")
         return 1
-    if _detect_model_format(source) is None:
+    model_format = _detect_model_format(source)
+    if model_format is None:
         print(f"ERROR: {source} doesn't look like a Whisper model.")
         print(f"   Expected the folder produced by --export-model, containing either")
         print(f"   {' + '.join(CT2_MARKERS)} (faster_whisper) or "
@@ -230,8 +231,32 @@ def import_model(src: str, keep_in_place: bool = False) -> int:
         return 1
 
     print(f"   OK  Registered as '{key}' and set as the active model.")
+    _warn_on_backend_mismatch(model_format)
     print("   Restart Whisper Local (tray menu -> Restart) to load it.")
     return 0
+
+
+# Each model format loads on exactly one backend. Importing an OpenVINO bundle
+# onto a faster_whisper machine (or vice versa) would otherwise fail only at the
+# next launch, with a loader error that doesn't name the real cause — on the
+# offline machines this feature targets, that's a dead end. Warn here instead.
+_FORMAT_BACKENDS = {"ct2": "faster_whisper", "openvino": "openvino"}
+
+
+def _warn_on_backend_mismatch(model_format: str):
+    needed = _FORMAT_BACKENDS[model_format]
+    settings = Path(get_user_app_data_path()) / USER_SETTINGS
+    try:
+        with open(settings, encoding="utf-8") as f:
+            data = YAML().load(f) or {}
+        configured = (data.get("whisper") or {}).get("backend", "faster_whisper")
+    except Exception:
+        configured = "faster_whisper"
+    if configured != needed:
+        print(f"   WARNING: this is a {model_format} model, but whisper.backend "
+              f"is '{configured}'.")
+        print(f"   Set 'backend: {needed}' under 'whisper:' in user_settings.yaml, "
+              "or the model won't load.")
 
 
 # Add the model to whisper.models in user_settings.yaml and select it. Written
