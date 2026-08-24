@@ -16,6 +16,8 @@ Everyone whose pull requests have been merged. Add yourself here in your first P
 
 <!-- Add your name here in alphabetical order when contributing. -->
 
+- **Syncriix** ([@Syncriix](https://github.com/Syncriix)) — Intel GPU support via the OpenVINO backend
+
 ## Upstream open-source projects we build on
 
 Whisper Local stands on the shoulders of a lot of excellent work:
@@ -23,6 +25,7 @@ Whisper Local stands on the shoulders of a lot of excellent work:
 - [OpenAI Whisper](https://github.com/openai/whisper) — the underlying transcription model
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) / [CTranslate2](https://github.com/OpenNMT/CTranslate2) — fast inference runtime
 - [pywhispercpp](https://github.com/abdeladim-s/pywhispercpp) / [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — optional CPU/Apple-Silicon backend
+- [openvino-genai](https://github.com/openvinotoolkit/openvino.genai) — optional Intel GPU/NPU backend
 - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — voice activity detection
 - [TEN VAD](https://github.com/TEN-framework/ten-vad) — real-time silence detection
 - [pystray](https://github.com/moses-palmer/pystray) — cross-platform system tray

@@ -62,7 +62,7 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 | **Works in any app via hotkey** | ✅ | ✅ | partial | ❌ | partial |
 | **Customisable voice commands** | ✅ | partial | ✅ | ❌ | ❌ |
 | **Push-to-talk + auto-paste + auto-send** | ✅ | ✅ | partial | ❌ | ❌ |
-| **GPU acceleration (NVIDIA & AMD)** | ✅ | n/a | n/a | n/a | ❌ |
+| **GPU acceleration (NVIDIA, AMD & Intel)** | ✅ | n/a | n/a | n/a | ❌ |
 | **AI rephrase / transforms (Ollama)** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Hackable / MIT licensed** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **No account required** | ✅ | ❌ | ❌ | ❌ | ✅ |
@@ -84,7 +84,7 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 - ⏸ **Pause-all hotkey** — `Ctrl+Alt+Win` disables every Whisper Local hotkey until you press it again
 - 📋 **Auto-paste at cursor** — transcript lands wherever you're typing, optionally followed by Enter (auto-send)
 - 🔒 **100 % local & private** — no network calls during use; Whisper models cached on disk
-- 🚀 **GPU acceleration** — NVIDIA CUDA and AMD ROCm supported, CPU works out of the box
+- 🚀 **GPU acceleration** — NVIDIA CUDA, AMD ROCm and Intel OpenVINO (Arc / Iris Xe) supported, CPU works out of the box
 - 🗣️ **Voice commands** — say a trigger phrase to send a hotkey, type pre-written text, or run a shell command
 - 🔁 **Hot-reload** — edit `commands.yaml` and your change applies on the next transcription, no restart
 - 🩺 **Built-in diagnostics** — `whisper-local --doctor` checks audio devices, model cache, hotkeys, and recent errors
@@ -205,7 +205,7 @@ Edits hot-reload — no app restart required. See **[docs/voice-commands.md](doc
 
 ## ⚡ GPU Acceleration
 
-On first launch, Whisper Local detects your GPU and offers one-press install of the required runtime libraries. Supports **NVIDIA CUDA** and **AMD ROCm**.
+On first launch, Whisper Local detects your GPU and offers one-press install of the required runtime libraries. Supports **NVIDIA CUDA**, **AMD ROCm**, and **Intel OpenVINO** (Arc discrete/Pro cards and Arc / Iris Xe iGPUs).
 
 For manual setup or AMD RDNA 1, see **[docs/gpu-setup.md](docs/gpu-setup.md)**.
 
@@ -304,7 +304,7 @@ Delete the file and restart to reset to defaults. Highlights:
 | Option | Default | Notes |
 |---|---|---|
 | `whisper.model` | `base` | Any model from `whisper.models`. `tiny` = smallest/fastest, larger = more accurate/slower |
-| `whisper.device` | `cpu` | `cpu` or `cuda` (NVIDIA/AMD) |
+| `whisper.device` | `cpu` | `cpu` or `cuda` (NVIDIA/AMD); with `whisper.backend: openvino`: `gpu` (Intel), `cpu`, `npu`, `auto` |
 | `whisper.compute_type` | `int8` | `int8`/`float16`/`float32` |
 | `whisper.language` | `auto` | Auto-detect or specific language code |
 | `whisper.hotwords` | `[]` | Words the model should favour — names, jargon |
@@ -395,7 +395,7 @@ After setup, **zero network traffic**. Confirm by running `whisper-local --docto
 - **[docs/faq.md](docs/faq.md)** — privacy, comparisons (Whisper.cpp / WSR / Wispr Flow / Dragon), model picks, GPU notes
 - **[docs/distribution.md](docs/distribution.md)** — how releases work (standalone `.exe`, PyPI, winget, Homebrew) and how to ship one
 - **[docs/voice-commands.md](docs/voice-commands.md)** — the full voice command DSL
-- **[docs/gpu-setup.md](docs/gpu-setup.md)** — manual GPU setup for NVIDIA / AMD
+- **[docs/gpu-setup.md](docs/gpu-setup.md)** — manual GPU setup for NVIDIA / AMD / Intel
 - **[CHANGELOG.md](CHANGELOG.md)** — release notes
 
 Hit a wall? Run `whisper-local --doctor` or `whisper-local --selftest` first — they catch 90% of issues.
