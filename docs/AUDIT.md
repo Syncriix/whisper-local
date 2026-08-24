@@ -1,10 +1,63 @@
 # Whisper Local — Code Audit & Improvement Backlog
 
-**Last updated:** 2026-08-14
+**Last updated:** 2026-08-24
 **Audited versions:** 0.10.0 (Round 1, below) and 0.11.x (Round 2, next section)
 **Method:** Parallel subsystem reviews + manual verification of every finding before fixing.
 
 > This is a living document. Each issue has a stable ID (e.g. `SRV-1`) so commits and PRs can reference it. When you fix one, change its **Status** to `FIXED (<commit>)` rather than deleting it, so history stays readable.
+
+---
+
+## Round 8 (0.18.0) — merge from upstream (2026-08)
+
+PR [PinW/whisper-key-local#64](https://github.com/PinW/whisper-key-local/pull/64)
+was closed unmerged ("too messy to merge" — it was an undescribed bulk diff, so
+that verdict was about the shape of the PR, not the code). Divergence still had
+to be resolved, so this round goes the other way: review all 16 upstream commits
+since the fork point (af0e8b1) and adopt what is genuinely better, without
+surrendering anything this fork added.
+
+**Adopted:**
+- **UP-1 (Bug, real hardware)** `_classify_gpu` matched a single digit after
+  "RX", so an **RX 580 — Polaris, not RDNA — was classified as RDNA1** and the
+  app offered a runtime that cannot drive it. It also required a literal space,
+  missing the "RX5700" form vendors emit, and had no pattern for Strix Halo /
+  Ryzen AI MAX APUs (8040S/8050S/8060S), so GPU onboarding never fired on that
+  hardware. Adopted upstream's four-digit match. +8-case test.
+- **UP-2 (Feature)** Startup "ready" chime (`audio_feedback.ready_enabled`) plus
+  the `app_ready.wav` asset. A cold start is slow and the app has no window; an
+  audible cue is the clearest "the hotkey is live now" signal.
+- **UP-3 (Feature)** `terminal_title.py` — animated terminal tab title following
+  idle/recording/processing, retitled to "Whisper Local". Self-disables when
+  stdout is not a TTY, so a windowless launch pays nothing and no escape codes
+  reach redirected logs. All eight `system_tray.update_state()` call sites in
+  StateManager now route through one `_update_ui_state()` fan-out, so the tray
+  and the tab title cannot drift apart.
+- **UP-4 (Design, better than ours)** Vocabulary corrections
+  (`postprocess.corrections`): one canonical term, many misheard variants. Two
+  concrete advantages over our per-entry `postprocess.replacements`:
+  (a) the ergonomic shape when Whisper mangles one term several ways, and
+  (b) a single compiled alternation sorted longest-first — one pass regardless
+  of vocabulary size, and it removes a real ordering ambiguity ours has, where
+  with both `cap` and `cap x` defined the YAML order decided which won and a
+  short variant could shadow a longer one, leaving a dangling "x".
+  **Both are kept**: `replacements` retains whole_word/case_sensitive/regex and
+  remains what the history window's "Fix this everywhere" writes; `corrections`
+  runs first so a specific replacement can still override a broad mapping.
+
+**Already present, no action:** push-to-talk for the command hotkey
+(upstream ad890a4), `strip_trailing_period` (6cbdc32).
+
+**Deliberately not taken:** upstream's CLAUDE.md trim and the replacement of
+`project-index.md` with a condensed map (this fork's docs are richer and are
+enforced by `DocumentationStandardTests`), their plan-doc removal, and the 0.8.2
+version bump.
+
+**Verification:** 157 tests pass (11 new pinning the adopted behaviour); every
+pre-existing feature of this fork re-checked by hand (voice editing, smart
+formatting, absorb, replacements, offline model transfer, autostart repair,
+history learning loop); `--doctor` green. Line endings were normalised to the
+repo's convention after scripted edits so the diff shows only real changes.
 
 ---
 

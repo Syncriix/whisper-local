@@ -89,17 +89,31 @@ def _status(msg, level='info'):
     logger.log(logging.DEBUG, msg.strip())
 
 
+# Map a GPU name to the class that decides which runtime we need.
+#
+# The AMD matching is fussier than it looks. Requiring FOUR digits is deliberate:
+# a 3-digit part like "RX 580" is Polaris (GCN), not RDNA, and a loose one-digit
+# match classified it as RDNA1 and offered a runtime that cannot drive it. \s*
+# rather than \s+ because vendor strings are inconsistent ("RX5700" appears
+# without a space). Strix Halo / Ryzen AI MAX APUs (8040S/8050S/8060S) report no
+# "RX" at all, so they need their own pattern or GPU onboarding never fires for
+# them. Anything unrecognised returns None and we simply stay on CPU.
+# (AMD classification adopted from upstream PinW/whisper-key-local @86ce94f.)
 def _classify_gpu(gpu_vendor: str, gpu_name: str) -> str | None:
     if gpu_vendor == 'nvidia':
         return 'nvidia'
     if gpu_vendor == 'amd':
-        match = re.search(r'RX\s+(\d)', gpu_name)
+        name = gpu_name.upper()
+        match = re.search(r'RX\s*(\d{4})', name)
         if match:
-            series = int(match.group(1))
+            series = int(match.group(1)) // 1000
             if series == 5:
                 return 'amd_rdna1'
-            if series >= 6:
+            if series in (6, 7, 9):
                 return 'amd_rdna2+'
+            return None
+        if re.search(r'\b80[0-9]0S\b', name):
+            return 'amd_rdna2+'
     return None
 
 

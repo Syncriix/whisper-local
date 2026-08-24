@@ -338,12 +338,36 @@ audio_feedback: # Audio Feedback Settings
     # false = silent operation
     transcription_complete_enabled: false
 
+    # Play a short chime once the app has finished loading and the hotkey is live.
+    # Model loading can take a while on a cold start and the app has no window,
+    # so this is the clearest signal that it's ready.
+    ready_enabled: true
+
     # Sound file paths (relative to project root or absolute paths)
     # Use .wav files for best Windows compatibility
     start_sound: assets/sounds/record_start.wav
     stop_sound: assets/sounds/record_stop.wav
     cancel_sound: assets/sounds/record_cancel.wav
     transcription_complete_sound: assets/sounds/transcription_complete.wav
+    ready_sound: assets/sounds/app_ready.wav
+
+terminal_title: # Terminal Tab Title Status
+    # Shows "<prefix> Whisper Local" in the terminal tab, reflecting app state.
+    # Useful when the tray icon is hidden in the overflow area. Ignored entirely
+    # when stdout isn't a terminal (windowless launch, piped output).
+    #
+    # Each state is either a static prefix string, or a list of [prefix, seconds]
+    # frames cycled as an animation.
+    # Examples:
+    #   idle: "🎤"
+    #   processing:
+    #       - ["⠂", 0.25]
+    #       - ["⠐", 0.25]
+    idle: ""
+    recording:
+        - ["🔴", 1.5]
+        - ["⠀⠀", 1.0]
+    processing: ""
 
 system_tray: # System Tray Settings
     # Enable/disable system tray icon
@@ -467,6 +491,23 @@ postprocess: # Transcription post-processing pipeline
     #   - from: my sequel
     #     to: MySQL
     replacements: []
+
+    # Vocabulary corrections: one canonical spelling, many misheard variants.
+    # Use this when Whisper mangles the SAME term several different ways — you
+    # write the correct form once and list what you actually hear back.
+    # Matching is whole-word and case-insensitive; the replacement is inserted
+    # exactly as written here. All variants are applied in a single pass, and a
+    # longer variant always wins over a shorter one it contains.
+    #
+    # Tip: try whisper.hotwords first — that biases the model itself. These are
+    # the deterministic backstop for terms it still gets wrong.
+    # Example:
+    # corrections:
+    #     CAPEX: [cap x, copics]
+    #     CTranslate2: [see translate two]
+    #     MySQL: [my sequel]
+    corrections: {}
+
 
     # Strip "um", "uh", "like", "you know" filler words
     strip_filler_words: false

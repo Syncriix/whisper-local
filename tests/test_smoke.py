@@ -1586,3 +1586,118 @@ class StreamingDeliveryWorkerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UpstreamMergeTests(unittest.TestCase):
+    """Features adopted from upstream PinW/whisper-key-local, pinned here so a
+    future refactor can't quietly drop them."""
+
+    # --- AMD GPU classification (upstream 86ce94f) ---
+    def test_amd_gpu_classification(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'wk_gpu', str(ROOT / 'src' / 'whisper_key' / 'platform' / 'windows' / 'gpu.py'))
+        gpu = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gpu)
+        cases = [
+            # RX 580 is Polaris, NOT RDNA. The old one-digit match classified it
+            # as RDNA1 and offered a runtime that cannot drive it.
+            ('AMD Radeon RX 580', None),
+            ('AMD Radeon RX 5700 XT', 'amd_rdna1'),
+            ('RX5700', 'amd_rdna1'),          # vendor strings omit the space
+            ('AMD Radeon RX 7900 XTX', 'amd_rdna2+'),
+            ('AMD Radeon RX 9070 XT', 'amd_rdna2+'),
+            # Strix Halo / Ryzen AI MAX report no "RX" at all.
+            ('AMD Radeon 8060S Graphics', 'amd_rdna2+'),
+            ('AMD Radeon 8040S', 'amd_rdna2+'),
+            ('AMD Radeon 780M', None),
+        ]
+        for name, expected in cases:
+            self.assertEqual(gpu._classify_gpu('amd', name), expected, f"for {name!r}")
+        self.assertEqual(gpu._classify_gpu('nvidia', 'GeForce RTX 4090'), 'nvidia')
+
+    # --- Vocabulary corrections (upstream 59d6eb7, adapted) ---
+    def test_corrections_map_many_variants_to_one_term(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'corrections': {'CAPEX': ['cap x', 'copics'], 'MySQL': ['my sequel']}}
+        self.assertEqual(postprocess('the cap x budget', cfg), 'the CAPEX budget')
+        self.assertEqual(postprocess('we use copics here', cfg), 'we use CAPEX here')
+        self.assertEqual(postprocess('I love my sequel', cfg), 'I love MySQL')
+
+    def test_corrections_prefer_longest_variant(self):
+        # "cap" must not shadow "cap x" and leave a dangling "x".
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'corrections': {'CAP': ['cap'], 'CAPEX': ['cap x']}}
+        self.assertEqual(postprocess('the cap x budget', cfg), 'the CAPEX budget')
+
+    def test_corrections_are_whole_word_and_case_insensitive(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'corrections': {'MySQL': ['my sequel']}}
+        self.assertEqual(postprocess('MY SEQUEL rocks', cfg), 'MySQL rocks')
+        cfg2 = {'corrections': {'DOG': ['cat']}}
+        self.assertEqual(postprocess('category cat', cfg2), 'category DOG')
+
+    def test_corrections_tolerate_malformed_config(self):
+        from whisper_key.text_postprocess import postprocess
+        for bad in ({'corrections': 'nope'}, {'corrections': {'A': None}},
+                    {'corrections': {'A': 123}}, {'corrections': []},
+                    {'corrections': {'A': {'not': 'a list'}}}):
+            self.assertEqual(postprocess('some text', bad), 'some text', f"for {bad}")
+
+    def test_corrections_and_replacements_coexist(self):
+        # Our per-entry `replacements` must still work alongside the new map.
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'corrections': {'CAPEX': ['cap x']},
+               'replacements': [{'from': 'budget', 'to': 'spend'}]}
+        self.assertEqual(postprocess('the cap x budget', cfg), 'the CAPEX spend')
+
+    # --- Terminal tab title (upstream 892403b, retitled) ---
+    def test_terminal_title_parses_static_and_animated_states(self):
+        from whisper_key.terminal_title import TerminalTitle
+        t = TerminalTitle({'idle': '', 'recording': [['R', 0.1], ['  ', 0.2]],
+                           'processing': '...'})
+        self.assertEqual(t._frames['idle'], [('Whisper Local', 60.0)])
+        self.assertEqual(t._frames['recording'],
+                         [('R Whisper Local', 0.1), ('   Whisper Local', 0.2)])
+        self.assertEqual(t._frames['processing'], [('... Whisper Local', 60.0)])
+
+    def test_terminal_title_falls_back_on_bad_frames(self):
+        from whisper_key.terminal_title import TerminalTitle
+        t = TerminalTitle({'recording': [['R', 'not-a-number']], 'idle': {'bad': 1}})
+        # Bad frames fall back to the shipped defaults rather than raising.
+        self.assertTrue(t._frames['recording'])
+        self.assertEqual(t._frames['idle'], [('Whisper Local', 60.0)])
+
+    def test_terminal_title_lifecycle_is_safe_without_a_tty(self):
+        from whisper_key.terminal_title import TerminalTitle
+        t = TerminalTitle({})
+        t.update_state('recording')
+        t.start()
+        t.stop()  # must not raise even when disabled
+
+    # --- Startup ready sound (upstream d1d507a) ---
+    def test_ready_sound_wired_and_asset_present(self):
+        from whisper_key.audio_feedback import AudioFeedback
+        import inspect
+        params = inspect.signature(AudioFeedback.__init__).parameters
+        self.assertIn('ready_enabled', params)
+        self.assertIn('ready_sound', params)
+        self.assertTrue(hasattr(AudioFeedback, 'play_ready_sound'))
+        asset = ROOT / 'src' / 'whisper_key' / 'assets' / 'sounds' / 'app_ready.wav'
+        self.assertTrue(asset.is_file(), 'app_ready.wav must ship with the package')
+
+    # --- config defaults for all of the above ---
+    def test_new_config_sections_present_and_inert(self):
+        from ruamel.yaml import YAML
+        with open(ROOT / 'src' / 'whisper_key' / 'config.defaults.yaml', encoding='utf-8') as f:
+            cfg = YAML().load(f)
+        self.assertEqual(cfg['postprocess']['corrections'], {})
+        self.assertTrue(cfg['audio_feedback']['ready_enabled'])
+        self.assertEqual(cfg['audio_feedback']['ready_sound'],
+                         'assets/sounds/app_ready.wav')
+        self.assertIn('terminal_title', cfg)
+        for state in ('idle', 'recording', 'processing'):
+            self.assertIn(state, cfg['terminal_title'])
+        # Shipping defaults must not alter ordinary text.
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('hello world', dict(cfg['postprocess'])), 'hello world')

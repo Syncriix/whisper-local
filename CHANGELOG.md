@@ -2,6 +2,47 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0]
+
+Merges the good ideas from upstream [`PinW/whisper-key-local`](https://github.com/PinW/whisper-key-local)
+(v0.8.2) into this fork. Nothing from this fork was given up to do it — where
+both projects had solved the same problem, both approaches are kept and each is
+used where it is genuinely better.
+
+### Added
+- **Startup "ready" chime** (`audio_feedback.ready_enabled`, on by default). A
+  cold start spends a while loading the model and the app has no window, so an
+  audible cue is the clearest signal that the hotkey is finally live.
+- **Terminal tab title shows app state** — the tab reads
+  `<prefix> Whisper Local` and follows idle/recording/processing. Each state is a
+  static prefix or a list of `[prefix, seconds]` frames cycled as an animation
+  (`terminal_title` config). Useful when the tray icon is buried in the overflow
+  area. Self-disables when stdout isn't a terminal, so a windowless launch pays
+  nothing and no escape codes leak into redirected logs.
+- **Vocabulary corrections** (`postprocess.corrections`) — one canonical spelling,
+  many misheard variants:
+  ```yaml
+  corrections:
+      CAPEX: [cap x, copics]
+      CTranslate2: [see translate two]
+  ```
+  This is the ergonomic shape when Whisper mangles the same term several ways.
+  It complements, and does not replace, the existing per-entry
+  `postprocess.replacements` (which keeps `whole_word` / `case_sensitive` /
+  `regex` and is what the history window's "Fix this everywhere" writes).
+  All variants compile into a single alternation applied in one pass, so cost
+  doesn't grow with the size of your vocabulary, and longer variants always win
+  over shorter ones they contain — with both `cap` and `cap x` defined, "cap x"
+  can no longer be shadowed into a dangling "x".
+
+### Fixed
+- **AMD GPU detection misclassified several cards.** An RX 580 (Polaris, not
+  RDNA) was read as RDNA1 and offered a runtime that cannot drive it, because the
+  match only looked at one digit; a vendor string without a space (`RX5700`)
+  wasn't matched at all; and Strix Halo / Ryzen AI MAX APUs (8040S/8050S/8060S)
+  were never recognised, so GPU onboarding never fired for them. Now requires
+  four digits, tolerates the missing space, and classifies the APUs.
+
 ## [0.17.1]
 
 ### Fixed

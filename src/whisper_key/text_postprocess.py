@@ -6,6 +6,7 @@
 # polish. Every stage is opt-in via the `postprocess` config section and pure
 # except the final Ollama call, so output stays predictable and fully offline.
 
+import functools
 import json
 import logging
 import re
@@ -59,10 +60,16 @@ def postprocess(text: str, config: dict) -> str:
     if isinstance(smart_cfg, dict) and any(smart_cfg.get(k) for k in ('times', 'emails', 'urls')):
         text = _apply_smart_formatting(text, smart_cfg)
 
-    # User corrections (misrecognition fixes, e.g. "see translate two" →
-    # "CTranslate2"). Applied late so they win over formatting, but before the
-    # Ollama pass so the LLM sees already-corrected text. This is the backing
-    # store for the history window's one-click "always fix this".
+    # Both correction passes run late — after formatting, so they win over it,
+    # but before Ollama so the LLM sees already-corrected text.
+    #
+    # `corrections` is the vocabulary map (one canonical term, many misheard
+    # variants). It runs first so a specific `replacements` entry can still
+    # override a broad vocabulary mapping.
+    text = _apply_corrections(text, config.get('corrections'))
+
+    # `replacements` is the per-entry form (whole_word / case_sensitive /
+    # regex) and is what the history window's "Fix this everywhere" writes.
     replacements = config.get('replacements')
     if isinstance(replacements, (list, tuple)) and replacements:
         text = _apply_replacements(text, replacements)
@@ -271,6 +278,68 @@ def _apply_smart_formatting(text: str, cfg: dict) -> str:
     if cfg.get('times'):
         text = _TIME_RE.sub(lambda m: f"{m.group(1)} {m.group(2).upper()}M", text)
     return text
+
+
+# =============================================================================
+# Vocabulary corrections (one canonical term, many misheard variants)
+# =============================================================================
+
+# Config shape:  corrections: {CAPEX: [cap x, copics], MySQL: [my sequel]}
+#
+# Complements `replacements` rather than duplicating it. This shape is the
+# ergonomic one when Whisper mangles the SAME term several different ways —
+# you write the correct spelling once and list what you actually hear back.
+# `replacements` stays the per-entry form (whole_word / case_sensitive / regex)
+# and is what the history window's "Fix this everywhere" writes.
+#
+# Every variant compiles into ONE alternation applied in a single pass, so cost
+# is independent of how many corrections you define. Sorting longest-first
+# matters for correctness, not just speed: with "cap" and "cap x" both defined,
+# the longer variant must win, otherwise the shorter one shadows it and leaves a
+# dangling "x". Matching is case-insensitive; the replacement is inserted with
+# the exact casing the user wrote.
+# (Design adopted from upstream PinW/whisper-key-local @59d6eb7.)
+@functools.lru_cache(maxsize=8)
+def _compile_corrections(items: tuple):
+    lookup = {}
+    for canonical, variants in items:
+        for variant in variants:
+            variant = str(variant).strip()
+            if variant:
+                lookup[variant.casefold()] = str(canonical)
+    if not lookup:
+        return None, {}
+    longest_first = sorted(lookup, key=len, reverse=True)
+    pattern = '|'.join(re.escape(v) for v in longest_first)
+    return re.compile(rf'\b(?:{pattern})\b', re.IGNORECASE), lookup
+
+
+# Normalise the config into a hashable tuple so the compiled regex can be
+# cached across dictations. A malformed section degrades to 'no corrections'
+# rather than raising mid-pipeline.
+def _corrections_key(corrections) -> tuple:
+    if not isinstance(corrections, dict):
+        return ()
+    items = []
+    for canonical, variants in corrections.items():
+        if variants is None:
+            continue
+        if isinstance(variants, (str, int, float)):
+            variants = [variants]
+        if not isinstance(variants, (list, tuple)):
+            continue
+        items.append((str(canonical), tuple(str(v) for v in variants)))
+    return tuple(items)
+
+
+def _apply_corrections(text: str, corrections) -> str:
+    key = _corrections_key(corrections)
+    if not key:
+        return text
+    regex, lookup = _compile_corrections(key)
+    if regex is None:
+        return text
+    return regex.sub(lambda m: lookup.get(m.group().casefold(), m.group()), text)
 
 
 # =============================================================================

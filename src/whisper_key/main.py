@@ -33,6 +33,7 @@ from .clipboard_manager import ClipboardManager
 from .state_manager import StateManager
 from .system_tray import SystemTray
 from .audio_feedback import AudioFeedback
+from .terminal_title import TerminalTitle
 from .instance_manager import cleanup_pid_file, guard_against_multiple_instances
 from .model_registry import ModelRegistry
 from .streaming_manager import StreamingManager
@@ -217,10 +218,12 @@ def setup_audio_feedback(audio_feedback_config):
     return AudioFeedback(
         enabled=audio_feedback_config['enabled'],
         transcription_complete_enabled=audio_feedback_config['transcription_complete_enabled'],
+        ready_enabled=audio_feedback_config['ready_enabled'],
         start_sound=audio_feedback_config['start_sound'],
         stop_sound=audio_feedback_config['stop_sound'],
         cancel_sound=audio_feedback_config['cancel_sound'],
-        transcription_complete_sound=audio_feedback_config['transcription_complete_sound']
+        transcription_complete_sound=audio_feedback_config['transcription_complete_sound'],
+        ready_sound=audio_feedback_config['ready_sound']
     )
 
 def setup_voice_commands(voice_commands_config, clipboard_manager, log_transcriptions=False, config_manager=None):
@@ -531,6 +534,10 @@ def main():
         audio_feedback = setup_audio_feedback(audio_feedback_config)
         voice_command_manager = setup_voice_commands(voice_commands_config, clipboard_manager, log_transcriptions, config_manager)
 
+        # Terminal tab title mirrors app state for people running in a visible
+        # terminal. Self-disables when stdout isn't a TTY, so it costs nothing
+        # under a windowless launch.
+        terminal_title = TerminalTitle(config_manager.get_terminal_title_config())
         state_manager = StateManager(
             audio_recorder=None,
             whisper_engine=whisper_engine,
@@ -539,7 +546,8 @@ def main():
             config_manager=config_manager,
             audio_feedback=audio_feedback,
             vad_manager=vad_manager,
-            voice_command_manager=voice_command_manager
+            voice_command_manager=voice_command_manager,
+            terminal_title=terminal_title
         )
         audio_recorder = setup_audio_recorder(audio_config, state_manager, vad_manager, streaming_manager)
         system_tray = setup_system_tray(tray_config, config_manager, state_manager, model_registry, console_config)
@@ -556,6 +564,7 @@ def main():
             raise
 
         system_tray.start()
+        terminal_title.start()
 
         if clipboard_config['auto_paste']:
             if not permissions.check_accessibility_permission():
@@ -565,6 +574,10 @@ def main():
                 clipboard_manager.update_auto_paste(False)
 
         print("🚀 Whisper Local ready!")
+        # Audible counterpart to the message above: on a cold start the model
+        # load is slow and the app has no window, so the chime is how a user
+        # knows the hotkey is finally live without watching the console.
+        audio_feedback.play_ready_sound()
         config_manager.print_startup_hotkey_instructions()
         print("   [CTRL+C] to quit", flush=True)
 

@@ -358,6 +358,9 @@ class ConfigManager:
         except Exception as e:
             self.logger.debug(f"postprocess hot-reload failed: {e}")
 
+    def get_terminal_title_config(self) -> Dict[str, Any]:
+        return self.config.get('terminal_title', {}).copy()
+
     def get_streaming_config(self) -> Dict[str, Any]:
         return self.config.get('streaming', {}).copy()
 

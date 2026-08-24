@@ -34,6 +34,7 @@ Open-source fork of [PinW/whisper-key-local](https://github.com/PinW/whisper-key
 | **Transcript History** | `history_window.py` + `transcript_log.py` | `--history` searchable journal of past transcriptions | tkinter, json |
 | **Hotkey Cheat Sheet** | `cheat_sheet.py` | Window listing currently configured hotkeys | tkinter |
 | **First-Run Welcome** | `first_run.py` | One-time onboarding window on first launch | tkinter |
+| **Terminal Title** | `terminal_title.py` | Animated terminal tab title reflecting app state | - |
 | **Level Overlay** | `level_overlay.py` | Floating level meter + streaming text pill | tkinter |
 | **Fallback Window** | `fallback_window.py` | Capture window when no text field is focused | tkinter |
 | **Transforms** | `transforms.py` | Wispr-style AI text transforms via Ollama | ruamel.yaml |

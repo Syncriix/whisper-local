@@ -43,6 +43,7 @@ from .transforms import TransformsManager
 from .text_postprocess import postprocess
 from .stats import record_transcription
 from .audit_log import record as audit_record
+from .terminal_title import TerminalTitle
 from .transcript_log import record_transcript
 from .platform import foreground
 from .level_overlay import LevelOverlay
@@ -57,12 +58,14 @@ class StateManager:
                  vad_manager: VadManager,
                  system_tray: Optional[SystemTray] = None,
                  audio_feedback: Optional[AudioFeedback] = None,
-                 voice_command_manager: Optional[VoiceCommandManager] = None):
+                 voice_command_manager: Optional[VoiceCommandManager] = None,
+                 terminal_title: Optional[TerminalTitle] = None):
 
         self.audio_recorder = audio_recorder
         self.whisper_engine = whisper_engine
         self.clipboard_manager = clipboard_manager
         self.system_tray = OptionalComponent(system_tray)
+        self.terminal_title = OptionalComponent(terminal_title)
         self.config_manager = config_manager
         self.audio_feedback = OptionalComponent(audio_feedback)
         self.vad_manager = vad_manager
@@ -188,7 +191,7 @@ class StateManager:
         self._continuous_aborted = True
         self.audio_recorder.cancel_recording()
         self.audio_feedback.play_cancel_sound()
-        self.system_tray.update_state("idle")
+        self._update_ui_state("idle")
         if self.level_overlay:
             self.level_overlay.hide()
     
@@ -257,7 +260,7 @@ class StateManager:
         self.streaming_delivery = None
         if self.audio_recorder.start_recording():
             self.audio_feedback.play_start_sound()
-            self.system_tray.update_state("recording")
+            self._update_ui_state("recording")
             if self.level_overlay:
                 self.level_overlay.show_recording()
 
@@ -276,7 +279,7 @@ class StateManager:
             print("\n🎤 Command mode activated! Speak a command...")
             self.config_manager.print_command_stop_instructions()
             self.audio_feedback.play_start_sound()
-            self.system_tray.update_state("recording")
+            self._update_ui_state("recording")
             if self.level_overlay:
                 self.level_overlay.show_recording()
 
@@ -292,7 +295,7 @@ class StateManager:
             print("\n🎤 Recording started! Speak now...")
             self.config_manager.print_stop_instructions_based_on_config()
             self.audio_feedback.play_start_sound()
-            self.system_tray.update_state("recording")
+            self._update_ui_state("recording")
             if self.level_overlay:
                 self.level_overlay.show_recording()
 
@@ -489,7 +492,7 @@ class StateManager:
 
             print(f"   ✓ Recorded {duration:.1f} seconds, transcribing...")
 
-            self.system_tray.update_state("processing")
+            self._update_ui_state("processing")
             if self.level_overlay:
                 self.level_overlay.show_processing()
 
@@ -640,7 +643,7 @@ class StateManager:
                 self._pending_model_change = None
 
             if not (pending_device or pending_model):
-                self.system_tray.update_state("idle")
+                self._update_ui_state("idle")
 
     def _handle_command_transcription(self, text: str, use_auto_enter: bool = False) -> bool:
         log_config = self.config_manager.get_logging_config()
@@ -684,8 +687,18 @@ class StateManager:
         except Exception as e:
             self.logger.error(f"Manual test failed: {e}")
             print(f"❌ Test failed: {e}")
+
+    # Single place that fans a state change out to every status surface, so
+    # the tray icon and the terminal tab title can never drift apart. Both are
+    # OptionalComponent-wrapped: a disabled tray or a non-TTY terminal is a
+    # silent no-op rather than a branch at each call site.
+    def _update_ui_state(self, state: str):
+        self.system_tray.update_state(state)
+        self.terminal_title.update_state(state)
+
     
     def shutdown(self):        
+        self.terminal_title.stop()
         print("Whisper Local is shutting down... goodbye!")
 
         if self.audio_recorder.get_recording_status():
@@ -704,9 +717,9 @@ class StateManager:
             
             if old_state != loading:
                 if loading:
-                    self.system_tray.update_state("processing")
+                    self._update_ui_state("processing")
                 else:
-                    self.system_tray.update_state("idle")
+                    self._update_ui_state("idle")
     
     def is_transcription_recording(self) -> bool:
         return self.audio_recorder.get_recording_status() and not self._command_mode
