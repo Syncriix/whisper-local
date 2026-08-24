@@ -43,10 +43,13 @@ mirror-the-API pattern. This plan adds a third engine the same way.
 ## Implementation Plan
 
 1. **Spike: measure medium on the Arc 140T (GATE — do this before any app code)**
-- [ ] Write `.temp/openvino-spike.py`: throwaway venv, `pip install openvino-genai`, `huggingface_hub.snapshot_download("OpenVINO/whisper-medium-int8-ov")`, transcribe a real ~15 s speech WAV on `"GPU"`; print available devices, cold-compile time, warm time over 3 runs, and the transcript
-- [ ] Sanity-check transcript correctness (the silent-wrong-output failure mode) and behavior on 1 s of silence
-- [ ] Record numbers in this plan's Status section
-- [ ] **Gate:** warm transcription must clearly beat CPU medium (int8) on the same machine and land in a dictation-friendly range (~≤0.3x realtime). If it fails, stop and reassess before writing the backend.
+- [x] Write `.temp/openvino-spike.py`: throwaway venv, `pip install openvino-genai`, `huggingface_hub.snapshot_download("OpenVINO/whisper-medium-int8-ov")`, transcribe a real ~15 s speech WAV on `"GPU"`; print available devices, cold-compile time, warm time over 3 runs, and the transcript
+  - ✅ Spike script + 17.1 s Windows-TTS test WAV with known text; venv in `.temp/ov-spike-venv`
+- [x] Sanity-check transcript correctness (the silent-wrong-output failure mode) and behavior on 1 s of silence
+  - ✅ Transcript essentially perfect on GPU, CPU, and faster-whisper (one TTS-artifact word)
+  - ✅ Silence → hallucinates `'you'` on both devices (expected; TEN-VAD pre-check is the defense)
+- [x] Record numbers in this plan's Status section
+- [x] **Gate: PASSED** — GPU RTF 0.09, 5.4x faster than the current faster-whisper CPU engine (see Status)
 
 2. **Engine: `whisper_engine_openvino.py`**
 - [ ] New class `WhisperEngineOpenVino` mirroring `WhisperEngine`'s public API exactly: same `__init__` signature, `transcribe_audio()`, `change_model()`, `is_loading()` (see Implementation Details)
@@ -162,6 +165,26 @@ def transcribe_audio(self, audio_data):
 - [ ] `--export-model` / `--import-model` round-trips an OpenVINO model between machines
 - [ ] `--doctor` reports backend, version, and available OpenVINO devices
 - [ ] Existing backends untouched: startup with default config unchanged (`/test-from-wsl`)
+
+## Status
+
+**Phase 1 complete — gate PASSED** (2026-08-24, Arc Pro 140T 16GB, driver 32.0.101.8517,
+openvino/genai/tokenizers 2026.3.0 matched trio, Python 3.13.14, 17.1 s TTS clip,
+whisper-medium int8):
+
+| Engine | Device | Warm time | RTF | Notes |
+|---|---|---|---|---|
+| faster-whisper 1.2.1 (current app), beam 5 | CPU | 8.0–8.2 s | 0.47 | today's baseline |
+| OpenVINO WhisperPipeline | CPU | 2.7–2.8 s | 0.16 | already 2.9x faster than baseline |
+| OpenVINO WhisperPipeline | **GPU** | **1.4–1.6 s** | **0.09** | **5.4x faster than baseline** |
+
+- Cold pipeline construction (first-ever compile): 15.0 s → **1.9 s** on relaunch with `CACHE_DIR`
+- First `generate()` after construction: ~3.6–4.1 s, warm thereafter → startup warmup absorbs it
+- Model download: 22 files, ~784 MB, resolved via `snapshot_download` into the standard HF cache
+- `ov.Core().available_devices` = `['CPU', 'GPU', 'NPU']`
+- Silence hallucinates `'you'` (0.3 s GPU / 1.4 s CPU) — VAD pre-check mandatory, as planned
+- Beam-5 note: faster-whisper baseline ran beam 5 (app default); OpenVINO ran greedy
+  (upstream limitation). Accuracy on the test clip was identical.
 
 ## Risks
 
