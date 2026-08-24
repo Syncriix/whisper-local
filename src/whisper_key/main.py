@@ -165,20 +165,8 @@ def setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transc
     backend = whisper_config.get('backend', 'faster_whisper')
 
     if backend == 'openvino':
-        from .whisper_engine_openvino import WhisperEngineOpenVino
-        return WhisperEngineOpenVino(
-            model_key=whisper_config['model'],
-            device=whisper_config['device'],
-            compute_type=whisper_config['compute_type'],
-            language=whisper_config['language'],
-            beam_size=whisper_config['beam_size'],
-            initial_prompt=whisper_config.get('initial_prompt', ''),
-            hotwords=whisper_config.get('hotwords', []),
-            task=whisper_config.get('task', 'transcribe'),
-            vad_manager=vad_manager,
-            model_registry=model_registry,
-            log_transcriptions=log_transcriptions
-        )
+        return _openvino_engine_with_recovery(
+            whisper_config, vad_manager, model_registry, log_transcriptions, config_manager)
 
     if backend == 'whisper_cpp':
         from .whisper_engine_cpp import WhisperEngineCpp
@@ -212,6 +200,29 @@ def setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transc
         )
     except RuntimeError as e:
         if whisper_config['device'] != 'cuda' or not config_manager:
+            raise
+        return _handle_gpu_failure(e, whisper_config, vad_manager, model_registry, log_transcriptions, config_manager)
+
+def _openvino_engine_with_recovery(whisper_config, vad_manager, model_registry, log_transcriptions, config_manager):
+    from .whisper_engine_openvino import WhisperEngineOpenVino
+    try:
+        return WhisperEngineOpenVino(
+            model_key=whisper_config['model'],
+            device=whisper_config['device'],
+            compute_type=whisper_config['compute_type'],
+            language=whisper_config['language'],
+            beam_size=whisper_config['beam_size'],
+            initial_prompt=whisper_config.get('initial_prompt', ''),
+            hotwords=whisper_config.get('hotwords', []),
+            task=whisper_config.get('task', 'transcribe'),
+            vad_manager=vad_manager,
+            model_registry=model_registry,
+            log_transcriptions=log_transcriptions
+        )
+    except RuntimeError as e:
+        # Same recovery UX as a failed CUDA setup: offer to re-run GPU setup or
+        # continue this session on CPU (the openvino backend runs fine on CPU).
+        if whisper_config['device'] not in ('gpu', 'auto') or not config_manager:
             raise
         return _handle_gpu_failure(e, whisper_config, vad_manager, model_registry, log_transcriptions, config_manager)
 

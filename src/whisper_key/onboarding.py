@@ -25,6 +25,12 @@ NVIDIA_PACKAGES = [
     "nvidia-cudnn-cu12",
 ]
 
+# Must stay in sync with the [openvino] extra in pyproject.toml — the
+# openvino/genai/tokenizers trio is ABI-locked, hence the exact pin.
+INTEL_PACKAGES = [
+    "openvino-genai==2026.3.0.0",
+]
+
 _ROCM_72_BASE = "https://repo.radeon.com/rocm/windows/rocm-rel-7.2"
 _CT2_RDNA2_BASE = "https://github.com/PinW/ctranslate2-rocm-wheels/releases/download/v4.7.1-rocm72"
 
@@ -43,6 +49,7 @@ RDNA1_SETUP_URL = "https://github.com/PinW/ctranslate2-rocm-rdna1"
 GPU_SIZES = {
     'nvidia': {'download': '1.2 GB', 'disk': '1.8 GB'},
     'amd_rdna2+': {'download': '1.1 GB', 'disk': '3.3 GB'},
+    'intel': {'download': '90 MB', 'disk': '240 MB'},
 }
 
 
@@ -74,7 +81,11 @@ def check_gpu(gpu_class, gpu_name, ct2_works, configured_device, config_manager)
         config_manager.update_user_setting('onboarding', 'gpu', 'no_gpu')
         return
 
-    if ct2_works and configured_device == 'cuda':
+    # `ct2_works` means "the vendor's GPU runtime works": a CTranslate2 CUDA/HIP
+    # test for NVIDIA/AMD, an OpenVINO device probe for Intel. Config-side,
+    # "already enabled" is device: cuda for the former, device: gpu for Intel.
+    gpu_device = 'gpu' if gpu_class == 'intel' else 'cuda'
+    if ct2_works and configured_device == gpu_device:
         config_manager.update_user_setting('onboarding', 'gpu_class', gpu_class)
         config_manager.update_user_setting('onboarding', 'gpu', 'complete')
         return
@@ -93,7 +104,21 @@ def check_gpu(gpu_class, gpu_name, ct2_works, configured_device, config_manager)
 RUNTIME_LABELS = {
     'nvidia': 'CUDA',
     'amd_rdna2+': 'ROCm 7.2',
+    'intel': 'OpenVINO',
 }
+
+
+# What "GPU enabled" means in config differs per vendor: NVIDIA/AMD flip
+# device to cuda on the default backend; Intel switches to the openvino
+# backend with its own device value.
+def _enable_gpu_config(gpu_class, config_manager):
+    if gpu_class == 'intel':
+        config_manager.update_user_setting('whisper', 'backend', 'openvino')
+        config_manager.update_user_setting('whisper', 'device', 'gpu')
+        config_manager.update_user_setting('whisper', 'compute_type', 'int8')
+    else:
+        config_manager.update_user_setting('whisper', 'device', 'cuda')
+        config_manager.update_user_setting('whisper', 'compute_type', 'float16')
 
 
 def _prompt_enable_manually_installed_gpu(gpu_class, gpu_name, config_manager):
@@ -119,8 +144,7 @@ def _prompt_enable_manually_installed_gpu(gpu_class, gpu_name, config_manager):
     print()
 
     if choice == INSTALL_GPU:
-        config_manager.update_user_setting('whisper', 'device', 'cuda')
-        config_manager.update_user_setting('whisper', 'compute_type', 'float16')
+        _enable_gpu_config(gpu_class, config_manager)
         config_manager.update_user_setting('onboarding', 'gpu_class', gpu_class)
         config_manager.update_user_setting('onboarding', 'gpu', 'complete')
         print(f"{BOLD_GREEN}GPU acceleration enabled.{RESET}\n")
@@ -178,6 +202,8 @@ def _install_gpu_packages(gpu_class, gpu_name, config_manager):
 
     if gpu_class == 'nvidia':
         success = _pip_install(NVIDIA_PACKAGES)
+    elif gpu_class == 'intel':
+        success = _pip_install(INTEL_PACKAGES)
     elif gpu_class == 'amd_rdna2+':
         success = _pip_install(ROCM_72_PACKAGES)
         if success:
@@ -192,8 +218,7 @@ def _install_gpu_packages(gpu_class, gpu_name, config_manager):
         print(f"\n{BOLD_RED}GPU setup failed. You'll be prompted again next launch.{RESET}\n")
         return
 
-    config_manager.update_user_setting('whisper', 'device', 'cuda')
-    config_manager.update_user_setting('whisper', 'compute_type', 'float16')
+    _enable_gpu_config(gpu_class, config_manager)
 
     restart_or_exit(
         f"\n{BOLD_GREEN}GPU acceleration installed. Restarting...{RESET}\n",

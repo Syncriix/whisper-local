@@ -35,6 +35,12 @@ def detect_and_print(configured_device):
     _status(f"   ✓ Detected {gpu_name}")
 
     gpu_class = _classify_gpu(gpu_vendor, gpu_name)
+
+    # Intel GPUs run through OpenVINO, not CTranslate2 — none of the CUDA/HIP
+    # runtime or ct2-variant checks below apply to them.
+    if gpu_vendor == 'intel':
+        return _check_intel_runtime(gpu_class, gpu_name)
+
     reqs = _GPU_REQUIREMENTS.get(gpu_class)
 
     runtime_version = None
@@ -100,9 +106,16 @@ def _classify_gpu(gpu_vendor: str, gpu_name: str) -> str | None:
                 return 'amd_rdna1'
             if series >= 6:
                 return 'amd_rdna2+'
+    if gpu_vendor == 'intel':
+        # Arc (discrete/Pro/iGPU) and Iris Xe are worth offering GPU setup for;
+        # older UHD iGPUs technically run OpenVINO but too slowly to promote.
+        if re.search(r'Arc|Iris', gpu_name, re.IGNORECASE):
+            return 'intel'
     return None
 
 
+# Detection order doubles as preference: a machine with an NVIDIA/AMD card plus
+# an Intel iGPU should onboard the discrete card, so Intel is probed last.
 def _detect_gpu() -> tuple[str | None, str | None]:
     nvidia = _detect_nvidia_gpu()
     if nvidia:
@@ -111,6 +124,10 @@ def _detect_gpu() -> tuple[str | None, str | None]:
     amd = _detect_amd_gpu()
     if amd:
         return 'amd', amd
+
+    intel = _detect_intel_gpu()
+    if intel:
+        return 'intel', intel
 
     return None, None
 
@@ -141,6 +158,49 @@ def _detect_amd_gpu() -> str | None:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return None
+
+
+def _detect_intel_gpu() -> str | None:
+    try:
+        result = subprocess.run(
+            ['powershell.exe', '-NoProfile', '-Command',
+             "(Get-CimInstance Win32_VideoController"
+             " | Where-Object {$_.Name -match 'Intel'}).Name"],
+            capture_output=True, text=True, timeout=5, **_NO_WINDOW
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().split('\n')[0].strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+# The Intel analogue of the CUDA/HIP runtime checks: is the openvino-genai
+# stack importable, and does its GPU plugin actually see the card? The second
+# question is the one a stale graphics driver fails.
+def _check_intel_runtime(gpu_class, gpu_name):
+    if not gpu_class:
+        return (None, None, False)
+
+    try:
+        import openvino
+        version = importlib.metadata.version('openvino-genai')
+        _status(f"   ✓ OpenVINO {version} runtime available")
+    except (ImportError, importlib.metadata.PackageNotFoundError):
+        _status("   ✗ OpenVINO runtime not found", 'warning')
+        return (gpu_class, gpu_name, False)
+
+    try:
+        devices = openvino.Core().available_devices
+    except Exception:
+        devices = []
+
+    if 'GPU' in devices:
+        _status("   ✓ GPU acceleration available")
+        return (gpu_class, gpu_name, True)
+
+    _status("   ✗ OpenVINO can't see the GPU — check the Intel graphics driver", 'warning')
+    return (gpu_class, gpu_name, False)
 
 
 def _find_cuda_runtime() -> str | None:

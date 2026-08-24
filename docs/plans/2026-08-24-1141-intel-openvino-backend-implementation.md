@@ -88,10 +88,14 @@ mirror-the-API pattern. This plan adds a third engine the same way.
   - ✅ Also fails loudly when the configured gpu/npu device is absent from the device list (stale/missing driver) — verified live: reports 2026.3.0.0 and CPU, GPU, NPU
 - [x] `docs/project-index.md`: component table row; `CHANGELOG.md` entry under `[Unreleased]`
 
-6. **Onboarding auto-detect (last, explicitly cuttable)**
-- [ ] `platform/windows/gpu.py`: detect Intel GPUs (Win32_VideoController match on Intel Arc/Iris/UHD) when no NVIDIA/AMD card is found; new class `intel`
-- [ ] `onboarding.py`: `intel` prompt variant — installs the pinned `openvino-genai`, sets `backend: openvino` + `device: gpu` + `compute_type: int8`; skip the CT2-specific checks for this class
-- [ ] macOS mirror stays a no-op (already is)
+6. **Onboarding auto-detect (last, explicitly cuttable)** ✅ complete
+- [x] `platform/windows/gpu.py`: detect Intel GPUs (Win32_VideoController match on Intel Arc/Iris/UHD) when no NVIDIA/AMD card is found; new class `intel`
+  - ✅ Classified only for Arc/Iris names (old UHD iGPUs are too slow to promote); runtime probe = openvino-genai importable + `'GPU'` in `available_devices` (catches stale drivers); verified live on the 140T: full System-check banner prints, returns `('intel', ..., True)`
+- [x] `onboarding.py`: `intel` prompt variant — installs the pinned `openvino-genai`, sets `backend: openvino` + `device: gpu` + `compute_type: int8`; skip the CT2-specific checks for this class
+  - ✅ `_enable_gpu_config()` centralizes the per-vendor config flip; install prompt offers "install OpenVINO — 90 MB download, 240 MB disk" (measured); `INTEL_PACKAGES` pin carries a keep-in-sync note pointing at pyproject
+  - ✅ Beyond plan: the CUDA-failure recovery dialog now also covers openvino engine failures on `device: gpu` (re-run setup or continue on CPU — the openvino backend runs fine on CPU)
+  - ⚠️ Interactive prompt paths not exercised (need a console); covered by the phase-7 manual test — reset `onboarding: gpu: pending` to see the prompt
+- [x] macOS mirror stays a no-op (already is)
 
 7. **Verification**
 - [ ] Unit tests: model-key mapping, import-error message when the extra isn't installed, device-string mapping (no openvino needed in CI — mirror the lean-env skip pattern from the model-transfer tests)
