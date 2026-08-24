@@ -4,6 +4,8 @@
 #   • A single sd.InputStream runs continuously from app startup. We do NOT
 #     open/close streams per recording — that was the source of "first word
 #     clipped" bugs and added 100-200ms of warmup latency on every press.
+#     Exception: pausing the app releases the stream entirely (see
+#     release_capture) so Bluetooth headsets can return to A2DP stereo.
 #
 #   • The buffer is a deque trimmed to ~500ms when idle. When the user presses
 #     record, the buffer already contains the recent past, so anything they
@@ -396,6 +398,42 @@ class AudioRecorder:
             self.is_recording = False
             self._buffer.clear()
         self.recording_start_time = None
+
+    # ── Pause support: release / reacquire the microphone ──────────────────
+    # An open input stream forces Bluetooth headsets out of A2DP (stereo music)
+    # into the telephone-quality hands-free profile for as long as it exists.
+    # Pausing the app therefore drops the stream entirely; resuming reopens it
+    # and the pre-roll ring buffer refills within ~500ms.
+
+    def release_capture(self):
+        if not self._capture_running:
+            return
+        self.logger.info("Releasing microphone — capture stream stopping")
+        # Same stop path as shutdown(): flipping the flag makes _capture_loop
+        # exit its inner loop, which closes the InputStream via its `with` block.
+        self._capture_running = False
+        if self._capture_thread:
+            self._capture_thread.join(timeout=self.THREAD_JOIN_TIMEOUT)
+            if self._capture_thread.is_alive():
+                self.logger.warning("Capture thread did not exit within timeout; mic release may lag briefly")
+            self._capture_thread = None
+        # Caller cancels any in-flight recording before releasing, but clear
+        # defensively too — a stale is_recording=True with no stream would wedge
+        # can_start_recording() for the rest of the session.
+        with self._buffer_lock:
+            self.is_recording = False
+            self._buffer.clear()
+        self._current_level = 0.0
+
+    def resume_capture(self):
+        if self._capture_running:
+            return
+        self.logger.info("Reacquiring microphone — capture stream restarting")
+        self._stream_error = None
+        self._start_capture()
+
+    def is_capture_running(self) -> bool:
+        return self._capture_running
 
     def shutdown(self):
         self._capture_running = False

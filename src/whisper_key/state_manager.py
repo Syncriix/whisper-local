@@ -215,11 +215,21 @@ class StateManager:
 
         self._begin_recording()
 
+    # Pause = hotkeys off AND microphone released. Releasing the capture stream
+    # (not just ignoring hotkeys) lets Bluetooth headsets fall back from the
+    # telephone-quality hands-free profile to A2DP stereo while paused.
     def set_paused(self, paused: bool):
         self.is_paused = paused
-        if paused and self.audio_recorder.get_recording_status():
-            self.cancel_active_recording()
-        self.system_tray.notify("Hotkeys paused" if paused else "Hotkeys resumed")
+        if paused:
+            # Order matters: cancel the in-flight recording first so the
+            # pipeline never sees a half-captured buffer, then drop the stream.
+            if self.audio_recorder.get_recording_status():
+                self.cancel_active_recording()
+            self.audio_recorder.release_capture()
+            self.system_tray.notify("Hotkeys paused — microphone released")
+        else:
+            self.audio_recorder.resume_capture()
+            self.system_tray.notify("Hotkeys resumed — microphone active")
 
     def start_rephrase_recording(self):
         if not self.can_start_recording():

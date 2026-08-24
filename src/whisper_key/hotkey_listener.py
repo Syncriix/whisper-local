@@ -193,7 +193,7 @@ class HotkeyListener:
         self.is_paused = not self.is_paused
         if self.is_paused:
             self.logger.info("Hotkeys paused")
-            print("\n⏸  Whisper Local hotkeys PAUSED. Press again to resume.")
+            print("\n⏸  Whisper Local PAUSED — hotkeys off, microphone released. Press again to resume.")
             self.state_manager.set_paused(True)
             try:
                 hotkeys.stop()
@@ -205,7 +205,7 @@ class HotkeyListener:
                 self.logger.error(f"Failed to reduce to pause-only: {e}")
         else:
             self.logger.info("Hotkeys resumed")
-            print("\n▶  Whisper Local hotkeys RESUMED.")
+            print("\n▶  Whisper Local RESUMED — microphone reacquired.")
             self.state_manager.set_paused(False)
             try:
                 hotkeys.stop()

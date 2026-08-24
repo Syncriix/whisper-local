@@ -1584,5 +1584,111 @@ class StreamingDeliveryWorkerTests(unittest.TestCase):
         self.assertEqual(delivered, ["a "])
 
 
+class MicReleaseOnPauseTests(unittest.TestCase):
+    # Pausing must fully release the microphone stream — an open input stream
+    # holds Bluetooth headsets in the telephone-quality hands-free profile, so
+    # "paused" has to mean the OS sees no capture client at all. Resuming must
+    # bring the continuous pre-roll capture back.
+
+    def _bare_recorder(self):
+        # AudioRecorder.__init__ opens a real audio stream; build a bare
+        # instance with just the state release/resume touch.
+        import collections
+        import logging
+        import threading
+        from whisper_key.audio_recorder import AudioRecorder
+        rec = AudioRecorder.__new__(AudioRecorder)
+        rec.logger = logging.getLogger("test.audio_recorder")
+        rec._buffer = collections.deque()
+        rec._buffer_lock = threading.Lock()
+        rec._capture_running = False
+        rec._capture_thread = None
+        rec.is_recording = False
+        rec._current_level = 0.0
+        rec._stream_error = None
+        return rec
+
+    def test_release_stops_thread_and_clears_state(self):
+        import threading
+        import time
+        rec = self._bare_recorder()
+        rec._capture_running = True
+        def fake_capture_loop():
+            while rec._capture_running:
+                time.sleep(0.005)
+        rec._capture_thread = threading.Thread(target=fake_capture_loop, daemon=True)
+        rec._capture_thread.start()
+        rec.is_recording = True
+        rec._buffer.append("chunk")
+        rec._current_level = 0.5
+
+        rec.release_capture()
+
+        self.assertFalse(rec.is_capture_running())
+        self.assertIsNone(rec._capture_thread)
+        self.assertEqual(len(rec._buffer), 0)
+        self.assertFalse(rec.is_recording)
+        self.assertEqual(rec.get_current_level(), 0.0)
+
+    def test_release_when_already_released_is_harmless(self):
+        rec = self._bare_recorder()
+        rec.release_capture()  # never started — must not raise
+        self.assertFalse(rec.is_capture_running())
+
+    def test_resume_restarts_capture_only_when_stopped(self):
+        import unittest.mock as mock
+        rec = self._bare_recorder()
+        with mock.patch.object(rec, "_start_capture") as start:
+            rec._capture_running = True
+            rec.resume_capture()  # already running — no double stream
+            start.assert_not_called()
+            rec._capture_running = False
+            rec.resume_capture()
+            start.assert_called_once()
+
+    def _bare_state_manager(self):
+        import unittest.mock as mock
+        from whisper_key.state_manager import StateManager
+        sm = StateManager.__new__(StateManager)
+        sm.audio_recorder = mock.Mock()
+        sm.system_tray = mock.Mock()
+        return sm
+
+    def test_set_paused_cancels_recording_before_releasing_mic(self):
+        sm = self._bare_state_manager()
+        order = []
+        sm.audio_recorder.get_recording_status.return_value = True
+        sm.audio_recorder.release_capture.side_effect = lambda: order.append("release")
+        sm.cancel_active_recording = lambda: order.append("cancel")
+
+        sm.set_paused(True)
+
+        # Cancel must run first so the pipeline never sees a half-captured buffer.
+        self.assertEqual(order, ["cancel", "release"])
+        self.assertTrue(sm.is_paused)
+        sm.system_tray.notify.assert_called_with("Hotkeys paused — microphone released")
+
+    def test_set_paused_releases_mic_even_when_idle(self):
+        import unittest.mock as mock
+        sm = self._bare_state_manager()
+        sm.audio_recorder.get_recording_status.return_value = False
+        sm.cancel_active_recording = mock.Mock()
+
+        sm.set_paused(True)
+
+        sm.cancel_active_recording.assert_not_called()
+        sm.audio_recorder.release_capture.assert_called_once()
+
+    def test_set_paused_false_resumes_capture(self):
+        sm = self._bare_state_manager()
+
+        sm.set_paused(False)
+
+        self.assertFalse(sm.is_paused)
+        sm.audio_recorder.resume_capture.assert_called_once()
+        sm.audio_recorder.release_capture.assert_not_called()
+        sm.system_tray.notify.assert_called_with("Hotkeys resumed — microphone active")
+
+
 if __name__ == "__main__":
     unittest.main()
