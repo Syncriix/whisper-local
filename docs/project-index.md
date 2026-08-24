@@ -55,6 +55,7 @@ Open-source fork of [PinW/whisper-key-local](https://github.com/PinW/whisper-key
 | **Autostart** | `autostart.py` | Opt-in launch-on-login (Windows Run key / macOS LaunchAgent) | winreg |
 | **Console Welcome** | `onboarding_tutorial.py` | One-time first-launch console welcome banner | - |
 | **Whisper.cpp Backend** | `whisper_engine_cpp.py` | Opt-in `whisper_cpp` backend mirroring WhisperEngine's API | pywhispercpp |
+| **OpenVINO Backend** | `whisper_engine_openvino.py` | Opt-in `openvino` backend for Intel GPUs (Arc / iGPU / NPU) | openvino-genai |
 | **Foreground App** | `platform/*/foreground.py` | Detects the active window/app for per-app rules | pywin32 / pyobjc |
 | **Console Control** | `platform/windows/console.py` | Show/hide/own the console window (pyapp builds) | ctypes |
 

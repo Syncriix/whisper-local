@@ -236,6 +236,23 @@ def _section_model() -> int:
             except ImportError:
                 Check("pywhispercpp installed").fail("missing — run: pip install 'whisper-local[whispercpp]'").print()
                 failures += 1
+        if backend == 'openvino':
+            try:
+                import openvino
+                import openvino_genai  # noqa
+                Check("openvino-genai installed").ok(getattr(openvino_genai, '__version__', '?')).print()
+                devices = openvino.Core().available_devices
+                Check("OpenVINO devices").info(", ".join(devices) or "none").print()
+                # The configured device must actually exist — a missing GPU here
+                # usually means a stale/absent Intel graphics driver.
+                configured = str(whisper_cfg.get('device', 'gpu')).upper()
+                if configured in ('GPU', 'NPU') and configured not in devices:
+                    Check(f"Configured device '{configured.lower()}'").fail(
+                        "not available — check the Intel graphics driver, or set device: cpu").print()
+                    failures += 1
+            except ImportError:
+                Check("openvino-genai installed").fail("missing — run: pip install 'whisper-local[openvino]'").print()
+                failures += 1
         streaming_cfg = cfg.get_streaming_config()
         registry = ModelRegistry(
             whisper_models_config=whisper_cfg.get('models', {}),

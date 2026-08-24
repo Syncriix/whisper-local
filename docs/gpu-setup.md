@@ -39,6 +39,7 @@ whisper:
   compute_type: float16
 ```
 Note: `cuda` applies to both [NVIDIA](#nvidia-cuda) and [AMD](#amd--rdna-2-rocm) GPUs.
+[Intel GPUs](#intel-openvino) use the `openvino` backend with `device: gpu` instead.
 
 ## NVIDIA (CUDA)
 
@@ -119,6 +120,45 @@ Then install the ROCm CTranslate2 wheel:
    - For pipx: `pipx runpip whisper-local install <wheel> --force-reinstall --no-deps`
 2. Set `device: cuda` and `compute_type: float16`
 3. Restart Whisper Local
+
+## Intel (OpenVINO)
+
+**Requirements:** An Intel GPU — Arc discrete/Pro cards, or the Arc / Iris Xe iGPU in Core Ultra laptops — with a current [Intel graphics driver](https://www.intel.com/content/www/us/en/download/785597/intel-arc-iris-xe-graphics-windows.html). That's the whole stack: no CUDA, no oneAPI, no toolkits.
+
+Intel GPUs use a dedicated OpenVINO backend instead of the CTranslate2 `cuda` path.
+
+### pip
+
+```
+pip install "whisper-local[openvino]"
+```
+
+### pipx
+
+```
+pipx inject whisper-local openvino-genai==2026.3.0.0
+```
+
+Then set in your user settings:
+
+```yaml
+whisper:
+  backend: openvino
+  device: gpu
+  compute_type: int8
+```
+
+and restart Whisper Local. Models download pre-converted on first use (`medium` ≈ 790 MB); the first launch also compiles the model for your GPU (one-time, ~15 s — later launches take ~2 s).
+
+**Measured on an Arc Pro 140T** (Core Ultra 200H laptop iGPU): `medium` transcribes a 17 s recording in **~1.5 s** — 5.4x faster than `medium` on CPU with the default backend.
+
+Notes:
+- `compute_type: int8` is recommended; `float16` selects the fp16 model variant.
+- The `distil-*` models have no OpenVINO variant; all standard models (`tiny` … `large-v3-turbo`, `.en` variants) work.
+- Decoding is greedy on this backend (upstream limitation) — `beam_size` is ignored.
+- `device: npu` and `device: auto` are accepted too; `gpu` is the tested path.
+- If transcription misbehaves, set `device: cpu` (still ~3x faster than the default backend on CPU) and run `whisper-local --doctor`.
+- `--export-model` / `--import-model` work with this backend for [offline machines](offline-models.md).
 
 ## CPU (no setup needed)
 

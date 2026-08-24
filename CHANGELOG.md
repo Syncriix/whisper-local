@@ -2,6 +2,23 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Intel GPU acceleration via a new OpenVINO backend.** CTranslate2 only
+  speaks CUDA/ROCm, so Intel Arc cards and Core Ultra iGPUs were stuck on CPU.
+  `pip install "whisper-local[openvino]"` plus `backend: openvino`,
+  `device: gpu` runs Whisper through `openvino_genai.WhisperPipeline` on the
+  Intel GPU — measured on an Arc Pro 140T iGPU, `medium` transcribes a 17 s
+  recording in ~1.5 s, 5.4x faster than the default backend on CPU. Only the
+  standard Intel graphics driver is required (no oneAPI, no toolkits). Models
+  download pre-converted (int8/fp16) from HuggingFace; `--export-model` /
+  `--import-model` support the new format for offline machines; `--doctor`
+  reports OpenVINO devices. `device: npu` and `auto` are accepted as
+  experimental options. Limitations: greedy decoding only (upstream), and the
+  `distil-*` models have no OpenVINO variant. See
+  [docs/gpu-setup.md](docs/gpu-setup.md#intel-openvino).
+
 ## [0.17.1]
 
 ### Fixed

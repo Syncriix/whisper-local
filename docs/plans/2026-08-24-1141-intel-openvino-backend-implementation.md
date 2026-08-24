@@ -81,10 +81,12 @@ mirror-the-API pattern. This plan adds a third engine the same way.
 - [x] `--import-model` writes the local dir into config the same way; engine accepts a local path as model source
   - ✅ Engine loaded the imported folder via the registry local-path branch and transcribed at full GPU speed (1.5 s)
 
-5. **Docs & diagnostics**
-- [ ] `gpu-setup.md`: new **"Intel (OpenVINO)"** section — requirements (Intel iGPU/Arc + current graphics driver, nothing else), pip/pipx install of the extra, config snippet (`backend: openvino`, `device: gpu`, `compute_type: int8`), first-launch compile note, limitations (greedy decoding, `device: cpu` fallback), measured performance from the spike
-- [ ] `doctor.py`: under the existing backend check, when `backend: openvino` report import/version and `openvino.Core().available_devices`
-- [ ] `docs/project-index.md`: component table row; `CHANGELOG.md` entry
+5. **Docs & diagnostics** ✅ complete
+- [x] `gpu-setup.md`: new **"Intel (OpenVINO)"** section — requirements (Intel iGPU/Arc + current graphics driver, nothing else), pip/pipx install of the extra, config snippet (`backend: openvino`, `device: gpu`, `compute_type: int8`), first-launch compile note, limitations (greedy decoding, `device: cpu` fallback), measured performance from the spike
+  - ✅ Plus a pointer from the `device: cuda` intro note so Intel users don't follow the NVIDIA/AMD path
+- [x] `doctor.py`: under the existing backend check, when `backend: openvino` report import/version and `openvino.Core().available_devices`
+  - ✅ Also fails loudly when the configured gpu/npu device is absent from the device list (stale/missing driver) — verified live: reports 2026.3.0.0 and CPU, GPU, NPU
+- [x] `docs/project-index.md`: component table row; `CHANGELOG.md` entry under `[Unreleased]`
 
 6. **Onboarding auto-detect (last, explicitly cuttable)**
 - [ ] `platform/windows/gpu.py`: detect Intel GPUs (Win32_VideoController match on Intel Arc/Iris/UHD) when no NVIDIA/AMD card is found; new class `intel`
