@@ -102,7 +102,21 @@ mirror-the-API pattern. This plan adds a third engine the same way.
   - ✅ 10 new tests (catalog, device map, unsupported-model error, config docs, Intel classification, onboarding config flip, IR format detection, OV import round-trip, cache-folder derivation); full suite: 157 tests, 0 failures
 - [x] Startup check with backend unset (no regression) — run natively (not WSL) against a scratch APPDATA: default config boots to "Whisper Local ready!" on CPU
   - ✅ Second launch with `backend: openvino`, `device: gpu`, `model: medium`: full app boots to ready — engine load, tray, hotkeys all live on the Arc GPU
-- [ ] **Manual test on the 140T machine (user):** full dictation loop on `medium` — hotkey, speak, text at cursor; model switch via tray; silence press; a >30 s dictation
+- [x] **Manual test on the 140T machine (user):** full dictation loop on `medium` — hotkey, speak, text at cursor; model switch via tray; silence press; a >30 s dictation
+  - ✅ Live dictation into VS Code with the user's real config: 2.6 s and 45.0 s utterances delivered complete; tray switch medium→base→medium with dictations on each
+  - ✅ The first live >30 s dictation (35.3 s) EXPOSED A REAL BUG: openvino-genai's internal long-form mode drops/loops the short final window after the 30 s boundary. Fixed in-engine by splitting at quiet points into ≤30 s chunks decoded on the single-window path (commit 0843a0a, 3 regression tests); re-test at 45 s delivered the full text ending on a complete sentence
+  - Silence tap not separately re-run live: the TEN-VAD short-circuit is backend-shared code, unchanged on this branch, and verified in the engine smoke test
+
+## Outcome
+
+Shipped. `pip install whisper-local[openvino]` + `backend: openvino`, `device: gpu`
+runs Whisper medium on Intel Arc at RTF ~0.09 (5.4x the CPU baseline), with
+first-launch auto-onboarding, offline model transfer, doctor checks, docs, and
+a long-form fix for an upstream genai bug found during live testing.
+
+Follow-ups (not in this branch): file the genai long-form bug upstream with the
+minimal repro; watch pywhispercpp for Vulkan wheels as a potential second Intel
+path; consider TEN-VAD-based cut points if RMS splitting ever misses.
 
 ## Implementation Details
 
