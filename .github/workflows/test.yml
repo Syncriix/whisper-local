@@ -23,4 +23,9 @@ jobs:
       # but a handful need numpy and pyperclip via transitive module-level imports.
       # Keep this list tight — anything heavier should be skipped behind a feature flag.
       - run: pip install ruamel.yaml numpy pyperclip
+      # macOS only: pull in pyobjc so platform/macos/hotkeys.py is actually
+      # imported and its Quartz symbols resolve here rather than on a user's
+      # Mac. The hotkey event tap (issue #4) has no other automated coverage.
+      - if: runner.os == 'macOS'
+        run: pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa
       - run: python -m unittest tests.test_smoke -v

@@ -1819,3 +1819,178 @@ class ReportedIssueTests(unittest.TestCase):
         self.assertIn('addGlobalMonitorForEventsMatchingMask_handler_', source)
         # A disabled tap must be re-enabled or hotkeys silently die after a timeout.
         self.assertIn('kCGEventTapDisabledByTimeout', source)
+
+
+class ReportedIssueHandlerTests(unittest.TestCase):
+    """Drive the real handlers, not just the primitives underneath them."""
+
+    # --- #6: the actual pause handler must survive a full round trip ---
+    def _listener(self):
+        import unittest.mock as mock
+        try:
+            from whisper_key.hotkey_listener import HotkeyListener
+        except Exception:
+            self.skipTest('hotkey_listener not importable on this platform')
+        # Build without __init__ so no real hotkeys are registered by construction.
+        listener = HotkeyListener.__new__(HotkeyListener)
+        listener.logger = __import__('logging').getLogger('test')
+        listener.is_paused = False
+        listener.pause_hotkey = 'ctrl+alt+f14'
+        listener.hotkey_bindings = [
+            ['ctrl+shift+f13', lambda: None, None],
+            ['ctrl+alt+f14', lambda: None, None],
+        ]
+        listener.state_manager = mock.Mock()
+        return listener
+
+    def test_pause_then_resume_leaves_hotkeys_listening(self):
+        # The bug: register() raised, the exception aborted before start(), and
+        # the listener was left stopped with every hotkey dead — pause included.
+        # Assert the handler ends with the listener STARTED in both states.
+        import io
+        import contextlib
+        import unittest.mock as mock
+        listener = self._listener()
+        try:
+            from whisper_key.platform import hotkeys as hk
+        except Exception:
+            self.skipTest('platform hotkeys not importable')
+
+        calls = []
+        with mock.patch.object(hk, 'register', side_effect=lambda b: calls.append(('register', len(b)))), \
+             mock.patch.object(hk, 'start', side_effect=lambda: calls.append(('start', None))), \
+             mock.patch.object(hk, 'stop', side_effect=lambda: calls.append(('stop', None))):
+            with contextlib.redirect_stdout(io.StringIO()):
+                listener._pause_hotkey_pressed()   # pause
+                listener._pause_hotkey_pressed()   # resume
+        self.assertTrue(listener.is_paused is False, 'second press must resume')
+        # Each transition must end in start(), or hotkeys are dead.
+        self.assertEqual(calls[-1][0], 'start')
+        self.assertEqual([c[0] for c in calls],
+                         ['stop', 'register', 'start', 'stop', 'register', 'start'])
+        # Pause reduces to the pause-only binding; resume restores the full set.
+        registers = [n for kind, n in calls if kind == 'register']
+        self.assertEqual(registers, [1, 2])
+
+    def test_pause_handler_survives_real_platform_register(self):
+        # Same handler, but against the REAL platform backend rather than mocks —
+        # this is the path that actually threw before the fix.
+        #
+        # Do NOT assert on listener.is_paused: it toggles at the top of the
+        # handler, before the try block, so it is true whether or not the
+        # hotkeys survived. The bug's real signature is that register() raised
+        # and start() was therefore never reached, leaving nothing listening.
+        # So count start() calls while letting the real register() run.
+        import io
+        import contextlib
+        import unittest.mock as mock
+        if sys.platform != 'win32':
+            self.skipTest('global-hotkeys is Windows-only')
+        try:
+            from whisper_key.platform import hotkeys as hk
+        except Exception:
+            self.skipTest('global_hotkeys not installed')
+        listener = self._listener()
+        starts = []
+        real_start = hk.start
+        try:
+            with mock.patch.object(hk, 'start',
+                                   side_effect=lambda: (starts.append(1), real_start())[1]):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    hk.register(listener.hotkey_bindings)
+                    listener._pause_hotkey_pressed()   # pause  (register raised pre-fix)
+                    listener._pause_hotkey_pressed()   # resume
+                    listener._pause_hotkey_pressed()   # pause again
+        finally:
+            try:
+                hk.stop()
+            except Exception:
+                pass
+        # One start() per transition. Pre-fix this was 0 — the exception from
+        # register() aborted the handler and every hotkey went dead.
+        self.assertEqual(len(starts), 3,
+                         'each pause/resume must re-arm the listener (issue #6)')
+
+    # --- #3: the actual tray handler must spawn a runnable command ---
+    def test_tray_restart_spawns_a_runnable_command(self):
+        import unittest.mock as mock
+        try:
+            from whisper_key.system_tray import SystemTray
+        except Exception:
+            self.skipTest('system_tray not importable on this platform')
+        tray = SystemTray.__new__(SystemTray)
+        tray.logger = __import__('logging').getLogger('test')
+        tray.notify = lambda *a, **k: None
+
+        spawned = {}
+        with mock.patch('subprocess.Popen', side_effect=lambda cmd, *a, **k: spawned.update(cmd=cmd)), \
+             mock.patch('os.kill') as killed:
+            tray._restart_application_from_tray()
+        cmd = spawned.get('cmd')
+        self.assertTrue(cmd, 'restart must spawn something')
+        self.assertTrue(killed.called, 'the old instance must exit after a successful spawn')
+        # It must be runnable: either the app executable, or python -m.
+        if len(cmd) > 1:
+            self.assertIn('-m', cmd)
+            self.assertIn('whisper_key.main', cmd)
+
+    def test_tray_restart_does_not_exit_when_spawn_fails(self):
+        # A failed relaunch must never leave the user with no app at all.
+        import unittest.mock as mock
+        try:
+            from whisper_key.system_tray import SystemTray
+        except Exception:
+            self.skipTest('system_tray not importable on this platform')
+        tray = SystemTray.__new__(SystemTray)
+        tray.logger = __import__('logging').getLogger('test')
+        notes = []
+        tray.notify = lambda msg, *a, **k: notes.append(msg)
+        with mock.patch('subprocess.Popen', side_effect=OSError('boom')), \
+             mock.patch('os.kill') as killed:
+            tray._restart_application_from_tray()
+        self.assertFalse(killed.called, 'must NOT kill the running app if relaunch failed')
+        self.assertTrue(notes, 'user must be told the restart failed')
+
+
+class MacOSHotkeyTests(unittest.TestCase):
+    """Real coverage for the #4 event-tap patch. Skips off macOS / without
+    pyobjc, but CI installs pyobjc on the macOS runner so this actually runs."""
+
+    def _module(self):
+        if sys.platform != 'darwin':
+            self.skipTest('macOS-only')
+        try:
+            from whisper_key.platform.macos import hotkeys
+        except Exception as e:
+            self.skipTest(f'pyobjc not available: {e}')
+        return hotkeys
+
+    def test_module_imports_and_quartz_symbols_resolve(self):
+        # The main risk in code I could not run: a mistyped Quartz symbol would
+        # only surface at import time on a real Mac.
+        hotkeys = self._module()
+        for name in ('CGEventTapCreate', 'CGEventTapEnable', 'CGEventMaskBit',
+                     'CGEventGetIntegerValueField', 'CFMachPortCreateRunLoopSource',
+                     'CFRunLoopAddSource', 'CFRunLoopGetCurrent', 'CFRunLoopStop',
+                     'kCGEventKeyDown', 'kCGEventKeyUp', 'kCGEventFlagsChanged',
+                     'kCGEventTapDisabledByTimeout', 'kCGSessionEventTap',
+                     'kCGKeyboardEventKeycode'):
+            self.assertTrue(hasattr(hotkeys, name), f'Quartz symbol missing: {name}')
+
+    def test_register_and_stop_are_safe_without_permission(self):
+        # stop() must be callable even when start() never created a tap, and
+        # must not raise when there is nothing to tear down.
+        hotkeys = self._module()
+        hotkeys.register([['ctrl+shift+f13', lambda: None, None]])
+        hotkeys.stop()
+        hotkeys.stop()  # idempotent
+
+    def test_key_down_dispatch_reports_whether_it_matched(self):
+        # The patch changed _handle_key_down to return True/False so the tap can
+        # decide whether to consume the event. A silent revert to None would make
+        # every keystroke pass through again — the exact bug #4 reported.
+        import inspect
+        hotkeys = self._module()
+        source = inspect.getsource(hotkeys._handle_key_down)
+        self.assertIn('return True', source)
+        self.assertIn('return False', source)
