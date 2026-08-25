@@ -1690,5 +1690,85 @@ class MicReleaseOnPauseTests(unittest.TestCase):
         sm.system_tray.notify.assert_called_with("Hotkeys resumed — microphone active")
 
 
+class PauseHotkeyGatingTests(unittest.TestCase):
+    # Pause must not touch hotkey registrations: on Windows the library invokes
+    # callbacks from inside its polling loop over the bindings dict, so any
+    # re-register from a hotkey callback crashes the checker thread. Pause
+    # therefore gates callbacks on is_paused instead.
+
+    def _listener(self):
+        import logging
+        import unittest.mock as mock
+        from whisper_key.hotkey_listener import HotkeyListener
+        # HotkeyListener.__init__ registers real global hotkeys; build a bare
+        # instance and run only the pure binding-table setup.
+        hl = HotkeyListener.__new__(HotkeyListener)
+        hl.state_manager = mock.Mock()
+        hl.recording_hotkey = "ctrl+win"
+        hl.stop_key = "ctrl"
+        hl.auto_send_key = None
+        hl.cancel_combination = None
+        hl.command_hotkey = None
+        hl.rephrase_hotkey = None
+        hl.pause_hotkey = "ctrl+alt+win"
+        hl.transforms_manager = None
+        hl.recording_mode = "push_to_talk"
+        hl.keys_armed = True
+        hl.is_listening = False
+        hl.is_paused = False
+        hl.logger = logging.getLogger("test.hotkey_listener")
+        hl._setup_hotkeys()
+        return hl
+
+    def _binding(self, hl, combo):
+        for b in hl.hotkey_bindings:
+            if b[0] == combo:
+                return b
+        self.fail(f"no binding for {combo}")
+
+    def test_non_pause_callbacks_are_inert_while_paused(self):
+        hl = self._listener()
+        record = self._binding(hl, "ctrl+win")
+
+        hl.is_paused = True
+        record[1]()  # press
+        record[2]()  # release
+        hl.state_manager.start_recording.assert_not_called()
+        hl.state_manager.stop_recording.assert_not_called()
+
+        hl.is_paused = False
+        record[1]()
+        hl.state_manager.start_recording.assert_called_once()
+
+    def test_pause_binding_bypasses_the_gate(self):
+        # redirect stdout: the pause banner's glyphs aren't encodable on a
+        # cp1252 test console (the app itself reconfigures stdout to UTF-8)
+        import contextlib
+        import io
+        hl = self._listener()
+        pause = self._binding(hl, "ctrl+alt+win")
+
+        hl.is_paused = True
+        with contextlib.redirect_stdout(io.StringIO()):
+            pause[1]()  # must still fire while paused — it IS the resume key
+
+        self.assertFalse(hl.is_paused)
+        hl.state_manager.set_paused.assert_called_once_with(False)
+
+    def test_pause_toggle_never_touches_registrations(self):
+        import contextlib
+        import io
+        import unittest.mock as mock
+        from whisper_key import hotkey_listener as hlmod
+        hl = self._listener()
+        with mock.patch.object(hlmod, "hotkeys") as hk:
+            with contextlib.redirect_stdout(io.StringIO()):
+                hl._pause_hotkey_pressed()  # pause
+                hl._pause_hotkey_pressed()  # resume
+            hk.stop.assert_not_called()
+            hk.register.assert_not_called()
+            hk.start.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

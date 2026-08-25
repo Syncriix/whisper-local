@@ -3,6 +3,12 @@
 # or push-to-talk), stop, auto-send, cancel, command mode, AI rephrase, pause-all,
 # and per-transform hotkeys. Handles PTT press/release and re-registration when
 # transforms or hotkey config change. Backed by the platform.hotkeys layer.
+#
+# Pause is implemented by GATING callbacks, not by re-registering a reduced
+# binding set: on Windows the library invokes callbacks from inside its own
+# polling loop over the bindings dict, so mutating registrations from within a
+# hotkey callback crashes that thread. Registration changes must only ever
+# happen from non-hotkey threads (startup, settings UI, transforms refresh).
 
 import logging
 
@@ -105,7 +111,8 @@ class HotkeyListener:
             hotkey_configs.append({
                 'combination': self.pause_hotkey,
                 'callback': self._pause_hotkey_pressed,
-                'name': 'pause'
+                'name': 'pause',
+                'bypass_pause': True,  # the only hotkey that must work WHILE paused
             })
 
         if self.transforms_manager:
@@ -123,10 +130,18 @@ class HotkeyListener:
         self.hotkey_bindings = []
         for config in hotkey_configs:
             hotkey = config['combination'].lower().strip()
+            press_callback = config['callback']
+            release_callback = config.get('release_callback') or None
+            # Everything except the pause toggle is silenced while paused (see
+            # module header for why gating beats re-registering).
+            if not config.get('bypass_pause'):
+                press_callback = self._unless_paused(press_callback)
+                if release_callback:
+                    release_callback = self._unless_paused(release_callback)
             self.hotkey_bindings.append([
                 hotkey,
-                config['callback'],
-                config.get('release_callback') or None,
+                press_callback,
+                release_callback,
                 False
             ])
             self.logger.info(f"Configured {config['name']} hotkey: {hotkey}")
@@ -189,30 +204,27 @@ class HotkeyListener:
         self.keys_armed = True
         self.state_manager.stop_recording()
 
+    # Runs on the hotkey checker thread — must never touch registrations (see
+    # module header). Toggling is_paused is enough: the _unless_paused gate on
+    # every other binding makes them inert while paused.
     def _pause_hotkey_pressed(self):
         self.is_paused = not self.is_paused
         if self.is_paused:
             self.logger.info("Hotkeys paused")
             print("\n⏸  Whisper Local PAUSED — hotkeys off, microphone released. Press again to resume.")
             self.state_manager.set_paused(True)
-            try:
-                hotkeys.stop()
-                bindings_only_pause = [b for b in self.hotkey_bindings if b[0] == self.pause_hotkey.lower().strip()]
-                if bindings_only_pause:
-                    hotkeys.register(bindings_only_pause)
-                    hotkeys.start()
-            except Exception as e:
-                self.logger.error(f"Failed to reduce to pause-only: {e}")
         else:
             self.logger.info("Hotkeys resumed")
             print("\n▶  Whisper Local RESUMED — microphone reacquired.")
             self.state_manager.set_paused(False)
-            try:
-                hotkeys.stop()
-                hotkeys.register(self.hotkey_bindings)
-                hotkeys.start()
-            except Exception as e:
-                self.logger.error(f"Failed to restore hotkeys: {e}")
+
+    # Wraps a hotkey callback so it becomes a no-op while paused.
+    def _unless_paused(self, callback):
+        def gated():
+            if self.is_paused:
+                return
+            callback()
+        return gated
 
     def _arm_keys_on_release(self):
         self.logger.debug("Key released - arming stop/auto-send keys")
