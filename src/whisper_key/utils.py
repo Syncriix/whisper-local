@@ -78,6 +78,52 @@ def setup_portaudio_path():
     if assets_dir.exists():
         os.environ['PATH'] = str(assets_dir) + os.pathsep + os.environ.get('PATH', '')
 
+# Find pythonw.exe for the interpreter we're running under. It normally sits
+# beside python.exe, but not always: a venv created with --without-pip, and some
+# Microsoft Store layouts, ship python.exe alone. Fall back to the BASE
+# interpreter's pythonw (sys._base_executable) before giving up.
+def _windowless_python(exe: str) -> str:
+    candidates = [Path(exe).with_name("pythonw.exe")]
+    base = getattr(sys, "_base_executable", None)
+    if base and base != exe:
+        candidates.append(Path(base).with_name("pythonw.exe"))
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError:
+            continue
+    return exe
+
+
+# The single answer to "what command relaunches this app?". Used by autostart
+# (windowless=True, so login doesn't pop a console) and by the tray's Restart
+# item (windowless=False, so a user who launched from a console keeps it).
+#
+# Never build this from sys.argv. For a pip install, argv[0] is the console-script
+# path, and pip only ships a compiled `whisper-local.exe` stub there — no plain
+# script file — so handing it to python.exe fails with "can't open file"
+# (issue #3). Invoking the module with -m is layout-independent.
+#
+# sys.executable is equally wrong under the standalone build: pyapp unpacks a
+# private CPython and runs the app with it, so sys.executable is that interpreter,
+# not the .exe. pyapp exports the real path as $PYAPP (PYAPP_PASS_LOCATION=1),
+# which is what issue #2 turned on.
+def build_relaunch_command(windowless: bool = False) -> list:
+    exe = sys.executable
+
+    pyapp_exe = os.environ.get("PYAPP", "")
+    if pyapp_exe and os.path.isfile(pyapp_exe):
+        return [pyapp_exe]
+
+    # Frozen builds (PyInstaller-style) genuinely do have sys.executable == the app.
+    if getattr(sys, "frozen", False) or exe.lower().endswith("whisper-local.exe"):
+        return [exe]
+
+    runner = _windowless_python(exe) if (windowless and sys.platform == "win32") else exe
+    return [runner, "-m", "whisper_key.main"]
+
+
 def restart_or_exit(message_restart, message_exit):
     pyapp_exe = os.environ.get('PYAPP', '')
     if os.path.isfile(pyapp_exe):

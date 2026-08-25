@@ -8,6 +8,43 @@
 
 ---
 
+## Round 9 (0.18.1) — reported issues (2026-08)
+
+All three open issues, each reported with a correct diagnosis. Every root cause
+was reproduced locally before fixing rather than taken on trust.
+
+- **ISS-6 (Critical, feature dead until restart)** The pause hotkey disabled every
+  hotkey. `global-hotkeys` keeps registrations across `stop_checking_hotkeys()`,
+  so the pause path's re-register raised "already registered" and the exception
+  aborted before `start_checking_hotkeys()` — no live hotkeys, pause included.
+  Reproduced against the bare library, then fixed by giving Windows `register()`
+  the replace semantics the macOS mirror already had (`clear_hotkeys()` first),
+  restoring the mirrored-API contract in docs/platform-abstraction.md.
+  +2 tests, one of which was verified to fail without the fix.
+- **ISS-3 (High, our own regression)** Tray Restart built its command from
+  `sys.argv`; for a pip console script that path has no plain script file, so
+  `python.exe` failed with "can't open file". Reproduced exactly. Root problem was
+  duplication: autostart was fixed for ISS-2 and the tray was left behind, so both
+  now share `utils.build_relaunch_command(windowless=...)`. +4 tests.
+- **ISS-4 (Med, macOS)** Global NSEvent monitors cannot consume events, so a
+  matched shortcut also typed its key. Adopted @chrysb's Quartz event-tap patch
+  (applies cleanly; verified `pyobjc-framework-Quartz` is already a declared
+  macOS dependency and already used by `platform/macos/keyboard.py`). The NSEvent
+  monitor is retained as a fallback, so a machine without Accessibility permission
+  degrades to current behaviour instead of losing hotkeys. **Not verified on real
+  macOS hardware by us** — the contributor validated it on their machine.
+
+**Not adopted:** upstream's two open issues are feature requests (Linux X11
+hotkeys, VAD); VAD already exists here.
+
+**Process note:** two contributors report being unable to open PRs against this
+repo. No interaction limits are set and forking is enabled — the cause is that
+this repo is itself a fork, so GitHub defaults a PR's base to the root parent
+(PinW/whisper-key-local). Worth resolving; there is a finished Intel GPU
+(OpenVINO) backend waiting on it in discussion #5.
+
+---
+
 ## Round 8 (0.18.0) — merge from upstream (2026-08)
 
 PR [PinW/whisper-key-local#64](https://github.com/PinW/whisper-key-local/pull/64)

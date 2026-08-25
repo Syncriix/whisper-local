@@ -1707,3 +1707,115 @@ class UpstreamMergeTests(unittest.TestCase):
         # Shipping defaults must not alter ordinary text.
         from whisper_key.text_postprocess import postprocess
         self.assertEqual(postprocess('hello world', dict(cfg['postprocess'])), 'hello world')
+
+
+class ReportedIssueTests(unittest.TestCase):
+    """Bugs reported by users, pinned so they cannot come back."""
+
+    # --- #6: pause hotkey permanently disabled every hotkey (Windows) ---
+    def test_windows_register_replaces_bindings(self):
+        # global-hotkeys keeps registrations across stop_checking_hotkeys(), so a
+        # second register() raised "already registered". That exception aborted
+        # the pause path before start() ran, leaving every hotkey dead — pause
+        # included, so there was no way back short of restarting the app.
+        if sys.platform != 'win32':
+            self.skipTest('global-hotkeys is Windows-only')
+        try:
+            from whisper_key.platform.windows import hotkeys
+        except Exception:
+            self.skipTest('global_hotkeys not installed')
+        full = [['ctrl+shift+f13', lambda: None, None],
+                ['ctrl+alt+f14', lambda: None, None]]
+        pause_only = [['ctrl+alt+f14', lambda: None, None]]
+        try:
+            # The exact sequence the pause hotkey performs, twice over.
+            for _ in range(2):
+                hotkeys.register(full)
+                hotkeys.start()
+                hotkeys.stop()
+                hotkeys.register(pause_only)   # raised before the fix
+                hotkeys.start()
+                hotkeys.stop()
+        finally:
+            try:
+                hotkeys.stop()
+            except Exception:
+                pass
+
+    def test_windows_register_clears_first(self):
+        # The mechanism behind the fix: register() must have replace semantics,
+        # matching the macOS mirror, per docs/platform-abstraction.md.
+        source = (ROOT / 'src' / 'whisper_key' / 'platform' / 'windows' / 'hotkeys.py').read_text(encoding='utf-8')
+        self.assertIn('clear_hotkeys()', source,
+                      'register() must clear before registering (issue #6)')
+
+    # --- #3: tray Restart broke on pip installs (Windows) ---
+    def test_relaunch_command_never_uses_argv(self):
+        # argv[0] for a pip console script is the launcher path, and pip ships
+        # only a compiled .exe stub there — handing it to python.exe fails with
+        # "can't open file". The command must invoke the module instead.
+        from whisper_key.utils import build_relaunch_command
+        import os
+        saved = os.environ.pop('PYAPP', None)
+        try:
+            cmd = build_relaunch_command()
+        finally:
+            if saved is not None:
+                os.environ['PYAPP'] = saved
+        self.assertIn('-m', cmd)
+        self.assertIn('whisper_key.main', cmd)
+        for part in cmd:
+            self.assertFalse(
+                part.endswith('Scripts\\whisper-local') or part.endswith('Scripts/whisper-local'),
+                f'relaunch command must not reference the console script: {cmd}')
+
+    def test_relaunch_command_prefers_pyapp_executable(self):
+        # The standalone build must relaunch the .exe, not pyapp's private
+        # interpreter (the issue #2 failure mode, shared by this code path).
+        import os
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import utils
+        with tempfile.TemporaryDirectory() as d:
+            fake = Path(d) / 'whisper-local.exe'
+            fake.write_text('stub', encoding='utf-8')
+            with mock.patch.dict(os.environ, {'PYAPP': str(fake)}):
+                with mock.patch.object(utils.sys, 'executable', str(Path(d) / 'python.exe')):
+                    self.assertEqual(utils.build_relaunch_command(), [str(fake)])
+
+    def test_windowless_variant_used_only_for_autostart(self):
+        # Autostart wants pythonw (no console at login); the tray restart wants
+        # the console-visible interpreter so a terminal user keeps their console.
+        import os
+        if sys.platform != 'win32':
+            self.skipTest('pythonw selection is Windows-only')
+        from whisper_key.utils import build_relaunch_command
+        saved = os.environ.pop('PYAPP', None)
+        try:
+            windowed = build_relaunch_command(windowless=False)
+            hidden = build_relaunch_command(windowless=True)
+        finally:
+            if saved is not None:
+                os.environ['PYAPP'] = saved
+        self.assertTrue(windowed[0].lower().endswith('python.exe'))
+        self.assertTrue(hidden[0].lower().endswith('pythonw.exe'))
+
+    def test_autostart_delegates_to_shared_builder(self):
+        # The two call sites disagreed once (autostart fixed for #2, tray left
+        # broken for #3). They must share one implementation now.
+        try:
+            from whisper_key import autostart
+        except Exception:
+            self.skipTest('autostart not importable on this platform')
+        from whisper_key.utils import build_relaunch_command
+        self.assertEqual(autostart._launch_command(), build_relaunch_command(windowless=True))
+
+    # --- #4: macOS hotkeys must be able to suppress the underlying key ---
+    def test_macos_hotkeys_use_event_tap_with_fallback(self):
+        source = (ROOT / 'src' / 'whisper_key' / 'platform' / 'macos' / 'hotkeys.py').read_text(encoding='utf-8')
+        self.assertIn('CGEventTapCreate', source, 'event tap needed to consume keystrokes')
+        # The NSEvent monitor must survive as the no-permission fallback.
+        self.assertIn('addGlobalMonitorForEventsMatchingMask_handler_', source)
+        # A disabled tap must be re-enabled or hotkeys silently die after a timeout.
+        self.assertIn('kCGEventTapDisabledByTimeout', source)

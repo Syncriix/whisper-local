@@ -2,6 +2,38 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1]
+
+All three open issues, reported with diagnoses and patches by
+@Syncriix, @FosselDev and @chrysb.
+
+### Fixed
+- **The pause hotkey killed every hotkey until you restarted the app**
+  ([#6](https://github.com/drajb/whisper-local/issues/6), @Syncriix). `global-hotkeys`
+  keeps its registrations across `stop_checking_hotkeys()`, so re-registering the
+  reduced pause-only set raised "already registered". The exception aborted the
+  pause path *before* it could start listening again — leaving the app with no
+  live hotkeys at all, pause included, so there was no way back. Windows
+  `register()` now clears first, giving it the same replace semantics the macOS
+  side always had.
+- **Tray "Restart Whisper Local" failed on pip installs**
+  ([#3](https://github.com/drajb/whisper-local/issues/3), @FosselDev). Restart
+  built its command from `sys.argv`, but for a pip console script `argv[0]` is the
+  launcher path and pip ships only a compiled `whisper-local.exe` stub there — no
+  plain script for `python.exe` to open, so it died with "can't open file".
+  Both restart paths now share one `utils.build_relaunch_command()`, which invokes
+  the module with `-m`. They had drifted apart, which is exactly why fixing
+  autostart in 0.16.2 left the tray broken.
+- **macOS: a matched hotkey no longer types its key into your app**
+  ([#4](https://github.com/drajb/whisper-local/issues/4), patch by @chrysb).
+  `Option+Space` started dictation *and* inserted a space, because a global
+  NSEvent monitor can observe keystrokes but never consume them. Hotkey detection
+  now prefers a Quartz event tap, which consumes matched key-down/key-up events
+  while leaving ordinary typing alone, ignores key-repeat, and re-enables itself
+  if macOS disables the tap. The NSEvent monitor remains as a fallback when the
+  tap can't be created (normally a missing Accessibility permission), so
+  behaviour degrades to today's rather than breaking.
+
 ## [0.18.0]
 
 Merges the good ideas from upstream [`PinW/whisper-key-local`](https://github.com/PinW/whisper-key-local)

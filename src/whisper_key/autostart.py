@@ -14,6 +14,8 @@ import os
 import sys
 from pathlib import Path, PureWindowsPath
 
+from .utils import build_relaunch_command
+
 logger = logging.getLogger(__name__)
 
 _WIN_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -25,53 +27,12 @@ def is_supported() -> bool:
     return sys.platform in ("win32", "darwin")
 
 
-# Build the command Whisper Local should be relaunched with at login. We prefer a
-# windowless launch so the user doesn't get a console window every boot.
+# Build the command Whisper Local should be relaunched with at login. The real
+# logic lives in utils.build_relaunch_command so autostart and the tray's
+# Restart item can never disagree about how to start this app again — they did
+# once, which is how issue #3 happened after issue #2 was fixed here only.
 def _launch_command() -> list:
-    exe = sys.executable
-
-    # Standalone pyapp build: relaunch whisper-local.exe itself.
-    #
-    # Do NOT use sys.executable here. pyapp unpacks a private CPython and runs the
-    # app with it, so sys.executable is that interpreter — not the .exe. Putting it
-    # in the Run key launched a bare interpreter with no script at boot, i.e. an
-    # interactive Python console instead of the app (issue #2). pyapp is built with
-    # PYAPP_PASS_LOCATION=1, which exports the real executable path as $PYAPP; that
-    # is the same value utils.restart_or_exit and the tray's Restart item use.
-    pyapp_exe = os.environ.get("PYAPP", "")
-    if pyapp_exe and os.path.isfile(pyapp_exe):
-        return [pyapp_exe]
-
-    # Frozen builds (PyInstaller-style) genuinely do have sys.executable == the app.
-    if getattr(sys, "frozen", False) or exe.lower().endswith("whisper-local.exe"):
-        return [exe]
-
-    # pip / source install: relaunch the module with the windowless interpreter
-    # (pythonw on Windows) so there's no console window at login.
-    if sys.platform == "win32":
-        return [_windowless_python(exe), "-m", "whisper_key.main"]
-    return [exe, "-m", "whisper_key.main"]
-
-
-# Find pythonw.exe for the interpreter we're running under. It normally sits
-# beside python.exe, but not always: a venv created with --without-pip, and some
-# Microsoft Store layouts, ship python.exe alone. In that case fall back to the
-# BASE interpreter's pythonw (sys._base_executable) before giving up — otherwise
-# autostart silently launches console python and the user gets a terminal window
-# on every boot, which is half of what issue #2 reported.
-def _windowless_python(exe: str) -> str:
-    candidates = [Path(exe).with_name("pythonw.exe")]
-    base = getattr(sys, "_base_executable", None)
-    if base and base != exe:
-        candidates.append(Path(base).with_name("pythonw.exe"))
-    for candidate in candidates:
-        try:
-            if candidate.is_file():
-                return str(candidate)
-        except OSError:
-            continue
-    logger.warning("pythonw.exe not found; autostart will show a console window")
-    return exe
+    return build_relaunch_command(windowless=True)
 
 
 def _win_command_string() -> str:

@@ -486,20 +486,26 @@ class SystemTray:
     def _quit_application_from_tray(self, icon=None, item=None):
         os.kill(os.getpid(), signal.SIGINT)
 
+    # Relaunch, then quit this instance — the new one's single-instance guard
+    # takes over the lock. The command comes from utils.build_relaunch_command,
+    # the same builder autostart uses, so the two can't disagree.
+    #
+    # This used to be [sys.executable] + sys.argv, which broke every pip install
+    # on Windows (issue #3): argv[0] is the console-script path, and pip ships
+    # only a compiled whisper-local.exe stub there — no plain script for
+    # python.exe to open. Extra CLI args are carried over so a restart keeps
+    # flags like --test.
     def _restart_application_from_tray(self, icon=None, item=None):
-        # Relaunch, then quit this instance — the new one's single-instance guard
-        # takes over the lock. Prefer the pyapp .exe when present (the standalone
-        # build); otherwise re-exec the current interpreter + argv. Only quit if
-        # the relaunch actually spawned, so a failed restart can't just kill the app.
         import subprocess
         import sys
+        from .utils import build_relaunch_command
         try:
-            pyapp = os.environ.get('PYAPP', '')
-            if pyapp and os.path.isfile(pyapp):
-                subprocess.Popen([pyapp])
-            else:
-                subprocess.Popen([sys.executable] + sys.argv)
+            command = build_relaunch_command() + sys.argv[1:]
+            self.logger.info(f"Restarting via: {command}")
+            subprocess.Popen(command)
         except Exception as e:
+            # Only quit if the relaunch actually spawned — a failed restart
+            # must not leave the user with no app at all.
             self.logger.error(f"Restart failed to relaunch: {e}")
             self.notify("Restart failed — please relaunch manually.")
             return
