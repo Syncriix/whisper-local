@@ -1843,10 +1843,13 @@ class ReportedIssueHandlerTests(unittest.TestCase):
         listener.state_manager = mock.Mock()
         return listener
 
-    def test_pause_then_resume_leaves_hotkeys_listening(self):
-        # The bug: register() raised, the exception aborted before start(), and
-        # the listener was left stopped with every hotkey dead — pause included.
-        # Assert the handler ends with the listener STARTED in both states.
+    def test_pause_never_touches_registrations(self):
+        # Issue #7. Re-registering from inside a hotkey callback is unsafe with
+        # global-hotkeys 0.1.7: the checker iterates a LIVE view of its bindings
+        # dict and calls back from inside that loop, so clearing mid-iteration
+        # raises RuntimeError and kills the thread; and its stop() never joins,
+        # so restarting while the chord is still held re-fires pause instantly.
+        # Pause must therefore only flip a flag.
         import io
         import contextlib
         import unittest.mock as mock
@@ -1856,60 +1859,59 @@ class ReportedIssueHandlerTests(unittest.TestCase):
         except Exception:
             self.skipTest('platform hotkeys not importable')
 
-        calls = []
-        with mock.patch.object(hk, 'register', side_effect=lambda b: calls.append(('register', len(b)))), \
-             mock.patch.object(hk, 'start', side_effect=lambda: calls.append(('start', None))), \
-             mock.patch.object(hk, 'stop', side_effect=lambda: calls.append(('stop', None))):
+        with mock.patch.object(hk, 'register') as reg, \
+             mock.patch.object(hk, 'start') as start, \
+             mock.patch.object(hk, 'stop') as stop:
             with contextlib.redirect_stdout(io.StringIO()):
                 listener._pause_hotkey_pressed()   # pause
                 listener._pause_hotkey_pressed()   # resume
-        self.assertTrue(listener.is_paused is False, 'second press must resume')
-        # Each transition must end in start(), or hotkeys are dead.
-        self.assertEqual(calls[-1][0], 'start')
-        self.assertEqual([c[0] for c in calls],
-                         ['stop', 'register', 'start', 'stop', 'register', 'start'])
-        # Pause reduces to the pause-only binding; resume restores the full set.
-        registers = [n for kind, n in calls if kind == 'register']
-        self.assertEqual(registers, [1, 2])
+        reg.assert_not_called()
+        start.assert_not_called()
+        stop.assert_not_called()
+        self.assertFalse(listener.is_paused, 'second press must resume')
 
-    def test_pause_handler_survives_real_platform_register(self):
-        # Same handler, but against the REAL platform backend rather than mocks —
-        # this is the path that actually threw before the fix.
-        #
-        # Do NOT assert on listener.is_paused: it toggles at the top of the
-        # handler, before the try block, so it is true whether or not the
-        # hotkeys survived. The bug's real signature is that register() raised
-        # and start() was therefore never reached, leaving nothing listening.
-        # So count start() calls while letting the real register() run.
+    def test_pause_gates_other_callbacks_but_not_itself(self):
+        # The flag is only useful if it actually suppresses the other hotkeys —
+        # and if pause itself stays live, otherwise you could never un-pause.
         import io
         import contextlib
-        import unittest.mock as mock
-        if sys.platform != 'win32':
-            self.skipTest('global-hotkeys is Windows-only')
-        try:
-            from whisper_key.platform import hotkeys as hk
-        except Exception:
-            self.skipTest('global_hotkeys not installed')
         listener = self._listener()
-        starts = []
-        real_start = hk.start
-        try:
-            with mock.patch.object(hk, 'start',
-                                   side_effect=lambda: (starts.append(1), real_start())[1]):
-                with contextlib.redirect_stdout(io.StringIO()):
-                    hk.register(listener.hotkey_bindings)
-                    listener._pause_hotkey_pressed()   # pause  (register raised pre-fix)
-                    listener._pause_hotkey_pressed()   # resume
-                    listener._pause_hotkey_pressed()   # pause again
-        finally:
-            try:
-                hk.stop()
-            except Exception:
-                pass
-        # One start() per transition. Pre-fix this was 0 — the exception from
-        # register() aborted the handler and every hotkey went dead.
-        self.assertEqual(len(starts), 3,
-                         'each pause/resume must re-arm the listener (issue #6)')
+        fired = []
+        gated = listener._gated(lambda: fired.append('record'), is_pause=False)
+        pause_cb = listener._gated(lambda: fired.append('pause'), is_pause=True)
+
+        gated(); pause_cb()
+        self.assertEqual(fired, ['record', 'pause'], 'both fire while running')
+
+        fired.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            listener._pause_hotkey_pressed()          # now paused
+        gated(); pause_cb()
+        self.assertEqual(fired, ['pause'],
+                         'while paused only the pause key may fire (issue #7)')
+
+        fired.clear()
+        with contextlib.redirect_stdout(io.StringIO()):
+            listener._pause_hotkey_pressed()          # resumed
+        gated()
+        self.assertEqual(fired, ['record'], 'resume must re-enable the others')
+
+    def test_gate_passes_through_none_release_callbacks(self):
+        # Bindings without a release callback must stay None, not become a
+        # wrapper that the backend would try to call.
+        listener = self._listener()
+        self.assertIsNone(listener._gated(None, is_pause=False))
+        self.assertIsNone(listener._gated(None, is_pause=True))
+
+    def test_pause_state_is_reported_to_state_manager(self):
+        import io
+        import contextlib
+        listener = self._listener()
+        with contextlib.redirect_stdout(io.StringIO()):
+            listener._pause_hotkey_pressed()
+            listener._pause_hotkey_pressed()
+        calls = [c.args[0] for c in listener.state_manager.set_paused.call_args_list]
+        self.assertEqual(calls, [True, False])
 
     # --- #3: the actual tray handler must spawn a runnable command ---
     def test_tray_restart_spawns_a_runnable_command(self):

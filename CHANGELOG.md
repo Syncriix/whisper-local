@@ -2,6 +2,29 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.2]
+
+### Fixed
+- **Pause hotkey, properly this time**
+  ([#7](https://github.com/drajb/whisper-local/issues/7), @Syncriix). The 0.18.1
+  fix was necessary but incomplete. Pause re-registered hotkeys *from inside a
+  hotkey callback*, and `global-hotkeys` 0.1.7 can't survive that: its checker
+  iterates a **live view** of the bindings dict and invokes callbacks from inside
+  that loop, so clearing mid-iteration raises `RuntimeError` and kills the
+  checker thread; and its stop only flips a flag without joining, so restarting
+  while the pause chord is still physically held gives the new thread blank
+  press-state — it reads the held chord as a fresh press and toggles pause again,
+  landing wherever timing decides.
+  Pause now **never touches registrations**. Non-pause callbacks are wrapped in a
+  gate that returns early while paused, and the pause key only flips the flag.
+  Registration changes remain on the non-callback paths (startup, settings
+  change, transforms refresh), where the 0.18.1 clear-first change is still
+  correct and necessary.
+- **`stop()` now lets the checker thread settle** before returning. The library's
+  stop never joins and the checker polls every 20 ms, leaving a race where a
+  caller that re-registers immediately clears the dict mid-iteration. Waits 200 ms
+  (10 poll cycles; the library's own restart path waits 700 ms).
+
 ## [0.18.1]
 
 All three open issues, reported with diagnoses and patches by

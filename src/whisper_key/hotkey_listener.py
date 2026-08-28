@@ -123,15 +123,41 @@ class HotkeyListener:
         self.hotkey_bindings = []
         for config in hotkey_configs:
             hotkey = config['combination'].lower().strip()
+            is_pause = config['name'] == 'pause'
             self.hotkey_bindings.append([
                 hotkey,
-                config['callback'],
-                config.get('release_callback') or None,
+                self._gated(config['callback'], is_pause),
+                self._gated(config.get('release_callback'), is_pause),
                 False
             ])
             self.logger.info(f"Configured {config['name']} hotkey: {hotkey}")
 
         self.logger.info(f"Total hotkeys configured: {len(self.hotkey_bindings)}")
+
+    # Pause works by GATING callbacks, never by re-registering hotkeys.
+    #
+    # Re-registering from inside a hotkey callback is unsafe with
+    # global-hotkeys 0.1.7 (issue #7): its checker iterates a live view of the
+    # bindings dict and invokes callbacks from inside that loop, so clearing
+    # mid-iteration raises RuntimeError and kills the checker thread. And its
+    # stop() only flips a flag without joining, so restarting while the pause
+    # chord is still physically held gives the new thread blank press-state —
+    # it sees the held chord as a fresh press and toggles pause again.
+    #
+    # So the registration set never changes while paused. Every non-pause
+    # callback simply returns early, and the pause key only flips a flag.
+    def _gated(self, callback, is_pause: bool):
+        if callback is None:
+            return None
+        if is_pause:
+            return callback  # pause itself must always work, to un-pause
+
+        def gated_callback():
+            if self.is_paused:
+                return
+            callback()
+
+        return gated_callback
 
     def _get_hotkey_combination_specificity(self, hotkey_config: dict) -> int:
         combination = hotkey_config['combination'].lower()
@@ -191,28 +217,15 @@ class HotkeyListener:
 
     def _pause_hotkey_pressed(self):
         self.is_paused = not self.is_paused
+        # Deliberately no stop()/register()/start() here — see _gated(). The
+        # bindings stay exactly as registered; only this flag changes.
         if self.is_paused:
             self.logger.info("Hotkeys paused")
             print("\n⏸  Whisper Local hotkeys PAUSED. Press again to resume.")
-            self.state_manager.set_paused(True)
-            try:
-                hotkeys.stop()
-                bindings_only_pause = [b for b in self.hotkey_bindings if b[0] == self.pause_hotkey.lower().strip()]
-                if bindings_only_pause:
-                    hotkeys.register(bindings_only_pause)
-                    hotkeys.start()
-            except Exception as e:
-                self.logger.error(f"Failed to reduce to pause-only: {e}")
         else:
             self.logger.info("Hotkeys resumed")
             print("\n▶  Whisper Local hotkeys RESUMED.")
-            self.state_manager.set_paused(False)
-            try:
-                hotkeys.stop()
-                hotkeys.register(self.hotkey_bindings)
-                hotkeys.start()
-            except Exception as e:
-                self.logger.error(f"Failed to restore hotkeys: {e}")
+        self.state_manager.set_paused(self.is_paused)
 
     def _arm_keys_on_release(self):
         self.logger.debug("Key released - arming stop/auto-send keys")
