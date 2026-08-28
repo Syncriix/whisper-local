@@ -2,6 +2,21 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.3]
+
+### Added
+- **`whisper-local --uninstall`** ([#8](https://github.com/drajb/whisper-local/issues/8),
+  @JzTurrini). The standalone build is a portable `.exe` with no installer, so it
+  never appears in Add/Remove Programs, and a `pip uninstall` leaves settings,
+  logs, transcripts, an autostart entry and potentially gigabytes of downloaded
+  models behind with no obvious way to find them.
+  The command shows exactly what it found, with real sizes, and removes nothing
+  without confirmation. Downloaded models are a **separate** prompt, because they
+  are the large, slow-to-replace part and you may just be reinstalling. The
+  HuggingFace cache is shared with other tools, so only directories matching
+  Whisper's own model naming are ever considered — a CLIP or diarization model
+  sitting beside them is never touched.
+
 ## [0.18.2]
 
 ### Fixed

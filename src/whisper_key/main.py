@@ -352,6 +352,8 @@ def main():
     parser.add_argument('--serve', action='store_true', help='Run a local OpenAI-compatible Whisper API server')
     parser.add_argument('--serve-host', default='127.0.0.1', help='Server bind host (default: 127.0.0.1)')
     parser.add_argument('--serve-port', type=int, default=7777, help='Server bind port (default: 7777)')
+    parser.add_argument('--uninstall', action='store_true',
+                        help='Remove settings, data, autostart entry and (optionally) downloaded models')
     parser.add_argument('--export-model', metavar='DEST', nargs='?', const='',
                         help='Copy the configured model into a portable folder for an offline '
                              'machine (defaults to your Desktop)')
@@ -365,6 +367,10 @@ def main():
     args = parser.parse_args()
 
     # '' means the flag was given with no path → export_model picks the default.
+    if args.uninstall:
+        from .uninstall import run_uninstall
+        sys.exit(run_uninstall())
+
     if args.export_model is not None:
         from .model_transfer import export_model
         sys.exit(export_model(args.export_model or None))

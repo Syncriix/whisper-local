@@ -1996,3 +1996,91 @@ class MacOSHotkeyTests(unittest.TestCase):
         source = inspect.getsource(hotkeys._handle_key_down)
         self.assertIn('return True', source)
         self.assertIn('return False', source)
+
+
+class UninstallSafetyTests(unittest.TestCase):
+    """--uninstall is the only code here that deletes user data. These pin the
+    safety properties, especially that a SHARED HuggingFace cache is respected."""
+
+    def test_only_our_models_are_ever_selected(self):
+        # The cache holds other tools' models (CLIP, diarization, ...). Selecting
+        # one of those for deletion would destroy unrelated work.
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import uninstall
+        with tempfile.TemporaryDirectory() as d:
+            hub = Path(d) / 'hub'
+            hub.mkdir()
+            ours = ['models--Systran--faster-whisper-base',
+                    'models--Systran--faster-distil-whisper-small.en',
+                    'models--openai--whisper-tiny']
+            theirs = ['models--openai--clip-vit-base-patch32',
+                      'models--pyannote--speaker-diarization-community-1',
+                      '.locks', 'models--meta-llama--Llama-3']
+            for name in ours + theirs:
+                (hub / name).mkdir()
+                (hub / name / 'blob').write_bytes(b'x' * 10)
+            with mock.patch.object(uninstall, '_hf_hub_root', return_value=hub):
+                selected = {p.name for p, _ in uninstall._our_cached_models()}
+        self.assertEqual(selected, set(ours))
+        for name in theirs:
+            self.assertNotIn(name, selected, f'must never select {name}')
+
+    def test_no_models_selected_when_cache_absent(self):
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import uninstall
+        with mock.patch.object(uninstall, '_hf_hub_root', return_value=Path('/nonexistent-xyz')):
+            self.assertEqual(uninstall._our_cached_models(), [])
+
+    def test_declining_removes_nothing(self):
+        # Answering "no" at the first prompt must leave everything untouched.
+        import io
+        import contextlib
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import uninstall
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / 'whisperkey'
+            cfg.mkdir()
+            (cfg / 'user_settings.yaml').write_text('x', encoding='utf-8')
+            with mock.patch.object(uninstall, 'get_user_app_data_path', return_value=str(cfg)),                  mock.patch.object(uninstall, '_our_cached_models', return_value=[]),                  mock.patch.object(uninstall, '_confirm', return_value=False):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = uninstall.run_uninstall()
+            self.assertEqual(rc, 1)
+            self.assertTrue(cfg.exists(), 'declining must not delete anything')
+            self.assertTrue((cfg / 'user_settings.yaml').exists())
+
+    def test_models_need_their_own_confirmation(self):
+        # Confirming the settings removal must NOT imply consent to delete
+        # gigabytes of models -- that is a second, separate decision.
+        import io
+        import contextlib
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import uninstall
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / 'whisperkey'; cfg.mkdir()
+            model = Path(d) / 'models--Systran--faster-whisper-base'; model.mkdir()
+            (model / 'model.bin').write_bytes(b'x' * 100)
+            answers = iter([True, False])   # yes to settings, NO to models
+            with mock.patch.object(uninstall, 'get_user_app_data_path', return_value=str(cfg)),                  mock.patch.object(uninstall, '_our_cached_models', return_value=[(model, 100)]),                  mock.patch.object(uninstall, '_confirm', side_effect=lambda *a: next(answers)):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    uninstall.run_uninstall()
+            self.assertFalse(cfg.exists(), 'settings should have been removed')
+            self.assertTrue(model.exists(), 'models must survive a "no" on the second prompt')
+
+    def test_clean_machine_reports_nothing_to_do(self):
+        import io
+        import contextlib
+        import unittest.mock as mock
+        from whisper_key import uninstall
+        with mock.patch.object(uninstall, 'get_user_app_data_path', return_value='/nonexistent-xyz'),              mock.patch.object(uninstall, '_our_cached_models', return_value=[]),              mock.patch.object(uninstall, '_confirm', side_effect=AssertionError('must not prompt')):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = uninstall.run_uninstall()
+        self.assertEqual(rc, 0)
+        self.assertIn('already clean', buf.getvalue())
