@@ -58,6 +58,7 @@ class AudioFeedback:
             self.logger.warning(f"Transcription complete sound file not found: {self.transcription_complete_sound_path}")
 
     def _play_sound_file_async(self, file_path: str):
+        self.logger.info(f"playing sound: {os.path.basename(file_path or '')}")
         def play():
             try:
                 playsound(file_path, block=False, backend=SOUND_BACKEND)

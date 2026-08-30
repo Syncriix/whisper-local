@@ -563,9 +563,10 @@ class StateManager:
         return str(self.config_manager.get_clipboard_config().get('send_phrase') or '').strip()
 
     # auto_stop: the recorder stopped itself (silence timeout, max duration).
-    # Then the stop sound waits until we know there was speech — an open mic in
-    # continuous mode times out every thirty seconds of silence, and a tick
-    # each time is noise the user did nothing to cause.
+    # Automatic stops are fully silent — no stop sound, and a silent restart —
+    # even when they deliver text. Audible cues belong to the user's own acts:
+    # a key stop or the send phrase. An open mic in continuous mode times out
+    # every thirty seconds and any tick there is noise they did nothing to cause.
     def _transcription_pipeline(self, audio_data, use_auto_enter: bool = False, auto_stop: bool = False):
         try:
             with self._state_lock:
@@ -606,9 +607,6 @@ class StateManager:
                 self.level_overlay.show_processing()
 
             transcribed_text = self.whisper_engine.transcribe_audio(audio_data)
-
-            if auto_stop and transcribed_text:
-                self.audio_feedback.play_stop_sound()
 
             if not transcribed_text:
                 if self._continuous_idle_restart("silence only"):
@@ -752,7 +750,7 @@ class StateManager:
                 record_transcript(transcribed_text, app=fg.get('exe', ''), duration_s=duration)
                 audit_enabled = (self.config_manager.config.get('audit') or {}).get('enabled', False)
                 audit_record('delivered', transcribed_text, fg.get('exe', ''), audit_enabled)
-                self._maybe_restart_continuous()
+                self._maybe_restart_continuous(quiet=auto_stop)
             elif self.level_overlay:
                 self.level_overlay.flash_failure()
             
