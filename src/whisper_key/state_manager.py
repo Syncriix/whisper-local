@@ -132,7 +132,7 @@ class StateManager:
     
     def handle_max_recording_duration_reached(self, audio_data):
         self.logger.info("Max recording duration reached - starting transcription")
-        self._transcription_pipeline(audio_data, use_auto_enter=False)
+        self._transcription_pipeline(audio_data, use_auto_enter=False, auto_stop=True)
 
     def handle_vad_event(self, event: VadEvent):
         if event == VadEvent.SILENCE_TIMEOUT:
@@ -141,7 +141,7 @@ class StateManager:
             self._clear_streaming_display()
             print(f"⏰ Stopping recording after {timeout_seconds} seconds of silence...")
             audio_data = self.audio_recorder.stop_recording()
-            self._transcription_pipeline(audio_data, use_auto_enter=False)
+            self._transcription_pipeline(audio_data, use_auto_enter=False, auto_stop=True)
 
     # Called on the audio thread for each streaming result. Updates the overlay
     # preview always; when commit-on-endpoint delivery is active, hands FINALIZED
@@ -530,7 +530,11 @@ class StateManager:
             return str(rule.get('send_phrase') or '').strip()
         return str(self.config_manager.get_clipboard_config().get('send_phrase') or '').strip()
 
-    def _transcription_pipeline(self, audio_data, use_auto_enter: bool = False):
+    # auto_stop: the recorder stopped itself (silence timeout, max duration).
+    # Then the stop sound waits until we know there was speech — an open mic in
+    # continuous mode times out every thirty seconds of silence, and a tick
+    # each time is noise the user did nothing to cause.
+    def _transcription_pipeline(self, audio_data, use_auto_enter: bool = False, auto_stop: bool = False):
         try:
             with self._state_lock:
                 self.is_processing = True
@@ -541,7 +545,8 @@ class StateManager:
                 self._rephrase_mode = False
                 self._rephrase_selection = ''
 
-            self.audio_feedback.play_stop_sound()
+            if not auto_stop:
+                self.audio_feedback.play_stop_sound()
 
             if audio_data is None:
                 if self._continuous_idle_restart("no audio captured"):
@@ -569,6 +574,9 @@ class StateManager:
                 self.level_overlay.show_processing()
 
             transcribed_text = self.whisper_engine.transcribe_audio(audio_data)
+
+            if auto_stop and transcribed_text:
+                self.audio_feedback.play_stop_sound()
 
             if not transcribed_text:
                 if self._continuous_idle_restart("silence only"):

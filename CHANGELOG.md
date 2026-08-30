@@ -28,7 +28,9 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
   the real-time model hears the trigger during a recording, without stopping
   it — "hush" to silence a talking assistant mid-sentence. Suffix match on the
   streaming partial, once per occurrence.
-- Automatic restarts after an empty stop are silent: no start sound, no banner.
+- Automatic stops (silence timeout, max duration) play the stop sound only when
+  there was speech, and restarts after an empty stop are silent: no start sound,
+  no banner. An open mic in continuous mode no longer ticks every thirty seconds.
 - **Send phrase sound** (`audio_feedback.send_phrase_sound`). A short rising
   two-tone the moment the phrase is recognised, distinct from the stop sound, so
   "sent" is audible without looking at the screen.
