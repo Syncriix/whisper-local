@@ -18,6 +18,8 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
   (`clipboard.send_phrase_live`, default on): the real-time model finalizes the
   phrase after your pause and the recording stops and sends with no key at all.
   The delivered text still comes from the full Whisper pass.
+- **`clipboard.send_phrase_strip`** (default true). Set false to leave the
+  phrase in the delivered text when it reads naturally as a sentence end.
 - **Continuous mode survives silence.** The VAD silence timeout used to stop
   the recording and, with nothing to deliver, leave the microphone closed. In
   continuous mode an empty stop now restarts recording quietly, so an open mic

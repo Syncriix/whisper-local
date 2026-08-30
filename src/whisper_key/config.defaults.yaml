@@ -326,6 +326,11 @@ clipboard: # Clipboard Behavior
     # and sends; the accurate Whisper pass still produces the delivered text.
     send_phrase_live: true
 
+    # Remove the phrase from the delivered text (true) or leave it in (false).
+    # Leave it in when the phrase reads naturally at the end of a sentence,
+    # e.g. "...and that's the plan, your turn." to an assistant.
+    send_phrase_strip: true
+
 logging: # Logging Configuration
     # Log level - how much detail to log
     # Options: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"

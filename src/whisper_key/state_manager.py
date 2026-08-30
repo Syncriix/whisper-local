@@ -585,7 +585,9 @@ class StateManager:
             send_phrase = self._resolve_send_phrase(rule)
             phrase_send = False
             if send_phrase:
-                transcribed_text, phrase_send = strip_send_phrase(transcribed_text, send_phrase)
+                stripped, phrase_send = strip_send_phrase(transcribed_text, send_phrase)
+                if self.config_manager.get_clipboard_config().get('send_phrase_strip', True):
+                    transcribed_text = stripped
                 if phrase_send:
                     self.logger.info(f"Send phrase matched: '{send_phrase}' - will press ENTER")
                     if not self._phrase_stop_pending:  # live path already played it

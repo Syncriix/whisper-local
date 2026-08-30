@@ -454,6 +454,7 @@ class SendPhraseTests(unittest.TestCase):
             cfg = YAML().load(f)
         self.assertEqual(cfg["clipboard"]["send_phrase"], "")
         self.assertTrue(cfg["clipboard"]["send_phrase_live"])
+        self.assertTrue(cfg["clipboard"]["send_phrase_strip"])
 
     def test_live_only_fires_on_finalized_phrase(self):
         from whisper_key.text_postprocess import send_phrase_heard_live
