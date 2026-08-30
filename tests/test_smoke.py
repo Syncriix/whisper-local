@@ -526,6 +526,38 @@ class LiveCommandTests(unittest.TestCase):
         self.assertIsNone(live_match([], "hush"))
 
 
+class HallucinationGateTests(unittest.TestCase):
+    def _seg(self, text, no_speech=0.1, logprob=-0.3, compression=1.2):
+        from collections import namedtuple
+        S = namedtuple("S", "text no_speech_prob avg_logprob compression_ratio")
+        return S(text, no_speech, logprob, compression)
+
+    def test_drops_only_when_both_signals_agree(self):
+        from whisper_key.whisper_engine import drop_hallucinated_segments
+        good = self._seg("real dictation")
+        quiet_but_confident = self._seg("soft but real", no_speech=0.9, logprob=-0.4)
+        unsure_but_speech = self._seg("mumbled words", no_speech=0.2, logprob=-1.6)
+        junk = self._seg("Thank you for watching.", no_speech=0.95, logprob=-1.4)
+        kept, dropped = drop_hallucinated_segments([good, quiet_but_confident, unsure_but_speech, junk])
+        self.assertEqual([s.text for s in kept], ["real dictation", "soft but real", "mumbled words"])
+        self.assertEqual([s.text for s in dropped], ["Thank you for watching."])
+
+    def test_drops_repetition_loops(self):
+        from whisper_key.whisper_engine import drop_hallucinated_segments
+        loop = self._seg("la la la la la la", compression=3.5)
+        kept, dropped = drop_hallucinated_segments([loop])
+        self.assertEqual(kept, [])
+        self.assertEqual(len(dropped), 1)
+
+    def test_defaults_ship_enabled(self):
+        from ruamel.yaml import YAML
+        path = ROOT / "src" / "whisper_key" / "config.defaults.yaml"
+        with open(path, encoding="utf-8") as f:
+            cfg = YAML().load(f)
+        hf = cfg["whisper"]["hallucination_filter"]
+        self.assertTrue(hf["enabled"])
+
+
 class StreamingHotwordsTests(unittest.TestCase):
     def test_normalize_uppercases_dedupes_keeps_order(self):
         from whisper_key.streaming_recognizer import normalize_hotwords

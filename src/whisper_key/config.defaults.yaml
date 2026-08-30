@@ -123,6 +123,19 @@ whisper: # Whisper AI Model Settings
             group: custom
             enabled: true
 
+    # Hallucination gate (faster-whisper backend). Whisper invents text on
+    # near-silence ("Thank you for watching.", fake domains). Each segment
+    # carries the model's own confidence; a segment is dropped only when BOTH
+    # its no-speech probability is above no_speech_prob AND its average log
+    # probability is below avg_logprob — or when compression_ratio shows a
+    # repetition loop. Every dropped segment is logged with its numbers;
+    # nothing disappears silently.
+    hallucination_filter:
+        enabled: true
+        no_speech_prob: 0.6
+        avg_logprob: -1.0
+        compression_ratio: 2.4
+
 streaming: # Real-time STT (Experimental)
     # Real-time streaming speech recognition using sherpa-onnx
     streaming_enabled: false

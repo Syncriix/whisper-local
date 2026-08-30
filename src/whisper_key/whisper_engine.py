@@ -36,6 +36,21 @@ def _model_size_hint(model_key: str) -> str:
     return ''
 
 
+# The model's own per-segment confidence, used to drop invented text.
+# Conservative on purpose: BOTH silence-likelihood and low confidence must
+# agree (the classic faster-whisper rule), or the segment is a repetition
+# loop. Returns (kept_segments, dropped_segments).
+def drop_hallucinated_segments(segments, no_speech_prob=0.6, avg_logprob=-1.0,
+                               compression_ratio=2.4):
+    kept, dropped = [], []
+    for seg in segments:
+        silence_born = (getattr(seg, 'no_speech_prob', 0.0) > no_speech_prob
+                        and getattr(seg, 'avg_logprob', 0.0) < avg_logprob)
+        repetition = getattr(seg, 'compression_ratio', 0.0) > compression_ratio
+        (dropped if silence_born or repetition else kept).append(seg)
+    return kept, dropped
+
+
 class WhisperEngine:
     def __init__(self,
                  model_key: str = "tiny",
@@ -48,7 +63,8 @@ class WhisperEngine:
                  task: str = "transcribe",
                  vad_manager = None,
                  model_registry = None,
-                 log_transcriptions: bool = False):
+                 log_transcriptions: bool = False,
+                 hallucination_filter: dict = None):
 
         self.model_key = model_key
         self.device = device
@@ -62,6 +78,7 @@ class WhisperEngine:
         self.logger = logging.getLogger(__name__)
         self.registry = model_registry
         self.log_transcriptions = log_transcriptions
+        self.hallucination_filter = hallucination_filter or {}
 
         self._loading_thread = None
         self._progress_callback = None
@@ -225,7 +242,21 @@ class WhisperEngine:
                 transcribe_kwargs["hotwords"] = self.hotwords
 
             segments, info = self.model.transcribe(audio_data, **transcribe_kwargs)
-            
+
+            segments = list(segments)
+            hf = self.hallucination_filter
+            if hf.get('enabled', True):
+                segments, dropped = drop_hallucinated_segments(
+                    segments,
+                    no_speech_prob=float(hf.get('no_speech_prob', 0.6)),
+                    avg_logprob=float(hf.get('avg_logprob', -1.0)),
+                    compression_ratio=float(hf.get('compression_ratio', 2.4)),
+                )
+                for seg in dropped:
+                    self.logger.info(
+                        "Dropped hallucinated segment: %r (no_speech=%.2f logprob=%.2f compression=%.2f)",
+                        seg.text.strip()[:80], seg.no_speech_prob, seg.avg_logprob, seg.compression_ratio)
+
             transcribed_text = ""
             for segment in segments:
                 transcribed_text += segment.text
