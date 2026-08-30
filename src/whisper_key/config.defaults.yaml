@@ -312,6 +312,12 @@ clipboard: # Clipboard Behavior
     # Not applied to text already typed live by streaming mode.
     send_phrase: ""
 
+    # Hear the phrase live and stop the recording — no key at all. Needs
+    # `streaming.streaming_enabled: true` (the small real-time model listens
+    # while you talk). The phrase followed by a short pause ends the recording
+    # and sends; the accurate Whisper pass still produces the delivered text.
+    send_phrase_live: true
+
 logging: # Logging Configuration
     # Log level - how much detail to log
     # Options: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"

@@ -453,6 +453,16 @@ class SendPhraseTests(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             cfg = YAML().load(f)
         self.assertEqual(cfg["clipboard"]["send_phrase"], "")
+        self.assertTrue(cfg["clipboard"]["send_phrase_live"])
+
+    def test_live_only_fires_on_finalized_phrase(self):
+        from whisper_key.text_postprocess import send_phrase_heard_live
+        # Partials revise and keep growing; only the endpointed final counts.
+        self.assertFalse(send_phrase_heard_live("fix the tests your turn", False, "your turn"))
+        self.assertTrue(send_phrase_heard_live("fix the tests your turn", True, "your turn"))
+        self.assertFalse(send_phrase_heard_live("your turn to review it", True, "your turn"))
+        self.assertFalse(send_phrase_heard_live("fix the tests", True, "your turn"))
+        self.assertFalse(send_phrase_heard_live("fix the tests your turn", True, ""))
 
 
 class AppRulesShapeTests(unittest.TestCase):

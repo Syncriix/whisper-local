@@ -14,6 +14,15 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
   sentence, and the phrase alone presses ENTER on whatever is already typed.
   `send_phrase` in `app_rules.yaml` overrides it per app (`""` disables). Not
   applied to text streaming mode has already typed live.
+  With `streaming.streaming_enabled: true` the phrase is also heard **live**
+  (`clipboard.send_phrase_live`, default on): the real-time model finalizes the
+  phrase after your pause and the recording stops and sends with no key at all.
+  The delivered text still comes from the full Whisper pass.
+- **Source installs on Windows with `device: cuda`** hung on the first real
+  transcription: the pip-installed NVIDIA runtimes unpack under
+  `site-packages/nvidia/*/bin`, which is on no loader path, so ctranslate2 could
+  not find `cublas64_12.dll`. Those directories are now added before ctranslate2
+  loads, mirroring the PortAudio fix. The packaged build was unaffected.
 
 ## [0.18.3]
 

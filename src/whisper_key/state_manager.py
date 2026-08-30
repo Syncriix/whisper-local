@@ -40,7 +40,7 @@ from .profiles import ProfileManager
 from .app_rules import AppRules, formatting_overrides as app_rules_formatting_overrides
 from .streaming_delivery import StreamingDelivery, decide_stream_delivery
 from .transforms import TransformsManager
-from .text_postprocess import postprocess, strip_send_phrase
+from .text_postprocess import postprocess, strip_send_phrase, send_phrase_heard_live
 from .stats import record_transcription
 from .audit_log import record as audit_record
 from .terminal_title import TerminalTitle
@@ -86,6 +86,8 @@ class StateManager:
         self._command_mode = False
         self._state_lock = threading.Lock()
         self._streaming_display_active = False
+        # Live send phrase: set once per recording so a second final can't stop twice.
+        self._phrase_stop_pending = False
         # Commit-on-endpoint streaming delivery (opt-in). Active only for the
         # current recording when conditions are met; default off → zero impact.
         self._streaming_delivery_active = False
@@ -145,6 +147,7 @@ class StateManager:
     # phrases to the delivery worker (never the revising partials).
     def handle_streaming_result(self, text: str, is_final: bool):
         if is_final:
+            self._watch_for_send_phrase(text)
             if self._streaming_display_active:
                 print(f"\r   {text:<70}")
                 self._streaming_display_active = False
@@ -156,6 +159,26 @@ class StateManager:
             self._streaming_display_active = True
         if self.level_overlay and text:
             self.level_overlay.set_streaming_text(text)
+
+    # ── Live send phrase ──
+    # The streaming recogniser finalizes a phrase after the user pauses. If that
+    # phrase ends with the send phrase, stop the recording as if the auto-send
+    # key had been pressed. Runs on the audio thread, so the stop (which runs
+    # Whisper) is handed to a worker; the recording flag flips immediately.
+    def _watch_for_send_phrase(self, text: str):
+        if self._phrase_stop_pending or not self.audio_recorder.get_recording_status():
+            return
+        if not self.config_manager.get_clipboard_config().get('send_phrase_live', True):
+            return
+        phrase = self._resolve_send_phrase(self.app_rules.match_for_foreground())
+        if not phrase or not send_phrase_heard_live(text, True, phrase):
+            return
+        self._phrase_stop_pending = True
+        self.logger.info(f"Send phrase heard live: '{phrase}' — stopping recording")
+        threading.Thread(
+            target=self.stop_recording, kwargs={'use_auto_enter': True},
+            daemon=True, name='send-phrase-stop',
+        ).start()
 
     def _clear_streaming_display(self):
         if self._streaming_display_active:
@@ -284,6 +307,7 @@ class StateManager:
                 self.level_overlay.show_recording()
 
     def _begin_recording(self):
+        self._phrase_stop_pending = False
         self._apply_recording_context()
         self._maybe_pause_media()
         success = self.audio_recorder.start_recording()

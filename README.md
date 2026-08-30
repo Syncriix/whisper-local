@@ -296,6 +296,22 @@ never say by accident. Per-app: `send_phrase` in `app_rules.yaml` overrides
 the global value, `""` disables it for that app. Not applied to text that
 streaming mode has already typed live.
 
+**Fully hands-free:** turn on the real-time model and the phrase also *stops*
+the recording — say it, pause, and the text is pasted and sent with no key at
+all. Toggle mode plus continuous mode then gives an open microphone that only
+sends when you say so:
+
+```yaml
+streaming:
+  streaming_enabled: true      # small real-time model listens while you talk
+clipboard:
+  send_phrase: "your turn"
+  send_phrase_live: true       # default; set false to keep the key-to-stop flow
+```
+
+The live model only decides *when* to stop; the delivered text still comes
+from the full Whisper pass.
+
 ## 🧹 Optional LLM cleanup
 
 If you have [Ollama](https://ollama.ai) running locally, Whisper Local can

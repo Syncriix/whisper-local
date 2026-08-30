@@ -124,6 +124,16 @@ def strip_send_phrase(text: str, phrase: str):
     return text[:m.start()].rstrip(), True
 
 
+# Live variant for the streaming recogniser: only a FINALIZED phrase counts.
+# A final arrives after the endpoint (the user paused), so "your turn" at its
+# end really was the end of the utterance; "your turn to review it" keeps
+# growing as a partial and never finalizes on the phrase.
+def send_phrase_heard_live(text: str, is_final: bool, phrase: str) -> bool:
+    if not is_final:
+        return False
+    return strip_send_phrase(text, phrase)[1]
+
+
 def _strip_trailing_period(text: str) -> str:
     stripped = text.rstrip()
     if not stripped:
