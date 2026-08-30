@@ -16,6 +16,8 @@ Everyone whose pull requests have been merged. Add yourself here in your first P
 
 <!-- Add your name here in alphabetical order when contributing. -->
 
+- **Syncriix** ([@Syncriix](https://github.com/Syncriix)) — send phrase, pause-hotkey and tray-restart reports
+
 ## Upstream open-source projects we build on
 
 Whisper Local stands on the shoulders of a lot of excellent work:

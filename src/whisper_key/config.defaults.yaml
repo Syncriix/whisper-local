@@ -303,6 +303,15 @@ clipboard: # Clipboard Behavior
     # Small delay ensures operations complete reliably (macOS only)
     macos_key_simulation_delay: 0.05
 
+    # Spoken send phrase — the hands-free counterpart of the auto-send key.
+    # If a transcription ENDS with this phrase (case-insensitive, surrounding
+    # punctuation ignored), the phrase is stripped and ENTER is sent after the
+    # paste. Say only the phrase to send whatever is already in the field.
+    # Pick something you never say by accident: "your turn", "engage", "transmit".
+    # Empty = off. Per-app override: `send_phrase` in app_rules.yaml.
+    # Not applied to text already typed live by streaming mode.
+    send_phrase: ""
+
 logging: # Logging Configuration
     # Log level - how much detail to log
     # Options: "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"

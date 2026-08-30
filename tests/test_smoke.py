@@ -410,6 +410,51 @@ class TextPostprocessTests(unittest.TestCase):
                          "alpha.\ngamma")
 
 
+class SendPhraseTests(unittest.TestCase):
+    # The spoken suffix must survive whatever punctuation Whisper wraps it in,
+    # never fire mid-sentence, and leave the text clean when it does fire.
+    def _strip(self, text, phrase="your turn"):
+        from whisper_key.text_postprocess import strip_send_phrase
+        return strip_send_phrase(text, phrase)
+
+    def test_matches_plain_suffix(self):
+        self.assertEqual(self._strip("Fix the tests your turn"), ("Fix the tests", True))
+
+    def test_ignores_case_and_surrounding_punctuation(self):
+        self.assertEqual(self._strip("Fix the tests. Your turn."), ("Fix the tests.", True))
+        self.assertEqual(self._strip("Fix the tests, your turn!"), ("Fix the tests,", True))
+        self.assertEqual(self._strip("Fix the tests — YOUR TURN"), ("Fix the tests —", True))
+
+    def test_whisper_may_join_words_with_any_separator(self):
+        self.assertEqual(self._strip("Ready. Your, turn."), ("Ready.", True))
+
+    def test_does_not_fire_mid_sentence(self):
+        text = "It is your turn to review the code"
+        self.assertEqual(self._strip(text), (text, False))
+
+    def test_does_not_fire_on_partial_word(self):
+        self.assertEqual(self._strip("this is a return"), ("this is a return", False))
+        self.assertEqual(self._strip("Fix the tests, yourturn"), ("Fix the tests, yourturn", False))
+
+    def test_phrase_alone_leaves_empty_text(self):
+        self.assertEqual(self._strip("Your turn."), ("", True))
+
+    def test_single_word_phrase(self):
+        self.assertEqual(self._strip("Deploy it. Engage!", "engage"), ("Deploy it.", True))
+
+    def test_empty_phrase_or_text_never_matches(self):
+        self.assertEqual(self._strip("anything", ""), ("anything", False))
+        self.assertEqual(self._strip("anything", "   "), ("anything", False))
+        self.assertEqual(self._strip("", "your turn"), ("", False))
+
+    def test_default_config_ships_disabled(self):
+        from ruamel.yaml import YAML
+        path = ROOT / "src" / "whisper_key" / "config.defaults.yaml"
+        with open(path, encoding="utf-8") as f:
+            cfg = YAML().load(f)
+        self.assertEqual(cfg["clipboard"]["send_phrase"], "")
+
+
 class AppRulesShapeTests(unittest.TestCase):
     def test_defaults_yaml_is_valid(self):
         from ruamel.yaml import YAML

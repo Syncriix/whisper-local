@@ -2,6 +2,19 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Send phrase** (@Syncriix). `clipboard.send_phrase: "your turn"` — when a
+  dictation ends with the phrase it is stripped and ENTER is pressed after the
+  paste, the hands-free counterpart of the `Alt` auto-send key. Built for
+  continuous mode with a chat app or AI assistant in the foreground, where no
+  hand is free for a key. Case-insensitive, ignores the punctuation Whisper
+  adds around it, only matches at the very end so the words stay usable in a
+  sentence, and the phrase alone presses ENTER on whatever is already typed.
+  `send_phrase` in `app_rules.yaml` overrides it per app (`""` disables). Not
+  applied to text streaming mode has already typed live.
+
 ## [0.18.3]
 
 ### Added

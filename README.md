@@ -84,6 +84,7 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 - 📋 **Fallback window** — if no text field is focused, the transcript appears in a small window (pre-selected, copy button, already on clipboard)
 - ⏸ **Pause-all hotkey** — `Ctrl+Alt+Win` disables every Whisper Local hotkey until you press it again
 - 📋 **Auto-paste at cursor** — transcript lands wherever you're typing, optionally followed by Enter (auto-send)
+- 🗣️ **Send phrase** — end your dictation with a word of your choice ("your turn") and it is stripped and Enter is pressed. Hands-free auto-send, no key needed
 - 🔒 **100 % local & private** — no network calls during use; Whisper models cached on disk
 - 🚀 **GPU acceleration** — NVIDIA CUDA and AMD ROCm supported, CPU works out of the box
 - 🗣️ **Voice commands** — say a trigger phrase to send a hotkey, type pre-written text, or run a shell command
@@ -270,10 +271,30 @@ rules:
     suppress: true
 ```
 
-A rule can override delivery (`auto_send`, `auto_paste`, `suppress`), Whisper
+A rule can override delivery (`auto_send`, `auto_paste`, `suppress`, `send_phrase`), Whisper
 context (`initial_prompt`, `language`, `task`), **and** formatting
 (`capitalize_first`, `ensure_punctuation`, `strip_trailing_period`,
 `inline_formatting`). Hot-reloads — edit and the next transcription picks it up.
+
+## 🗣️ Send phrase
+
+Auto-send normally needs the `Alt` key. For hands-free use — continuous mode,
+walking around, talking to a chat app or an AI assistant — set a spoken
+phrase instead:
+
+```yaml
+clipboard:
+  send_phrase: "your turn"
+```
+
+When a dictation *ends* with the phrase, the phrase is stripped and Enter is
+pressed after the paste. Matching is case-insensitive and ignores the
+punctuation Whisper puts around it, so "…and fix the tests. Your turn." sends
+"…and fix the tests." The words stay usable mid-sentence. Saying only the
+phrase presses Enter on whatever is already in the field. Pick something you
+never say by accident. Per-app: `send_phrase` in `app_rules.yaml` overrides
+the global value, `""` disables it for that app. Not applied to text that
+streaming mode has already typed live.
 
 ## 🧹 Optional LLM cleanup
 

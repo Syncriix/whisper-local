@@ -8,6 +8,8 @@
 #   auto_send:   true | false   - force ENTER after paste (auto-send)
 #   auto_paste:  true | false   - force or suppress paste-to-cursor
 #   suppress:    true           - skip delivery entirely (only log + recent)
+#   send_phrase: <string>       - spoken suffix that presses ENTER for this app
+#                                 ("" disables the global clipboard.send_phrase)
 #   initial_prompt: <string>    - prime Whisper with context for this app
 #                                 (concatenated after your global initial_prompt)
 #   language:    "en"|"es"|...  - force a transcription language for this app

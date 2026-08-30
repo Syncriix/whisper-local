@@ -97,6 +97,33 @@ def postprocess(text: str, config: dict) -> str:
     return text
 
 
+# ── Send phrase ─────────────────────────────────────────────────────────────
+# A spoken suffix ("your turn") that means "and press Enter". Matched only at
+# the very end so the words stay usable mid-sentence; punctuation on either
+# side is ignored because Whisper freely adds "." or "," around it.
+
+@functools.lru_cache(maxsize=16)
+def _send_phrase_pattern(phrase: str):
+    words = [re.escape(w) for w in phrase.split()]
+    if not words:
+        return None
+    body = r'\W+'.join(words)
+    return re.compile(r'(?:^|[\s\W])' + body + r'[\s\W]*$', re.IGNORECASE)
+
+
+def strip_send_phrase(text: str, phrase: str):
+    """Return (text_without_phrase, matched). Empty phrase never matches."""
+    if not text or not phrase or not phrase.strip():
+        return text, False
+    pattern = _send_phrase_pattern(phrase.strip().lower())
+    if pattern is None:
+        return text, False
+    m = pattern.search(text)
+    if not m:
+        return text, False
+    return text[:m.start()].rstrip(), True
+
+
 def _strip_trailing_period(text: str) -> str:
     stripped = text.rstrip()
     if not stripped:

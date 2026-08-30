@@ -275,6 +275,10 @@ class ConfigManager:
         if auto_paste_enabled and auto_send_key:
             print(f"   [{beautify_hotkey(auto_send_key)}] to auto-paste and send with ENTER")
 
+        send_phrase = self.config['clipboard'].get('send_phrase', '')
+        if auto_paste_enabled and send_phrase:
+            print(f'   say "{send_phrase}" at the end to send with ENTER')
+
     def print_startup_hotkey_instructions(self):
         recording_hotkey = beautify_hotkey(self.config['hotkey']['recording_hotkey'])
         recording_mode = self.config['hotkey'].get('recording_mode', 'toggle')

@@ -40,7 +40,7 @@ from .profiles import ProfileManager
 from .app_rules import AppRules, formatting_overrides as app_rules_formatting_overrides
 from .streaming_delivery import StreamingDelivery, decide_stream_delivery
 from .transforms import TransformsManager
-from .text_postprocess import postprocess
+from .text_postprocess import postprocess, strip_send_phrase
 from .stats import record_transcription
 from .audit_log import record as audit_record
 from .terminal_title import TerminalTitle
@@ -460,6 +460,13 @@ class StateManager:
     # record stats/history once delivery actually succeeded. Every early return
     # is a legitimate "nothing to deliver" case and must still clear state via
     # the finally block.
+    def _resolve_send_phrase(self, rule) -> str:
+        # App rule wins when it names the key at all: "" there disables the
+        # global phrase for that app, a string overrides it.
+        if rule and 'send_phrase' in rule:
+            return str(rule.get('send_phrase') or '').strip()
+        return str(self.config_manager.get_clipboard_config().get('send_phrase') or '').strip()
+
     def _transcription_pipeline(self, audio_data, use_auto_enter: bool = False):
         try:
             with self._state_lock:
@@ -528,10 +535,28 @@ class StateManager:
                 self.logger.info(f"App rule {rule.get('match')} → formatting overrides {fmt_overrides}")
             transcribed_text = postprocess(transcribed_text, postprocess_cfg)
 
+            # Spoken send phrase ("your turn"): the hands-free auto-send key.
+            # Checked after post-processing so corrections/formatting can't hide
+            # the suffix, and after the app rule so a rule can set or clear it.
+            send_phrase = self._resolve_send_phrase(rule)
+            phrase_send = False
+            if send_phrase:
+                transcribed_text, phrase_send = strip_send_phrase(transcribed_text, send_phrase)
+                if phrase_send:
+                    self.logger.info(f"Send phrase matched: '{send_phrase}' — will press ENTER")
+
             # Post-processing can legitimately empty the text — e.g. "scratch that"
             # erasing the whole utterance. Don't deliver an empty string (which
             # with auto-enter would just press Enter into the focused field).
+            # The one exception: the send phrase on its own means "send what is
+            # already in the field", so that presses Enter and nothing else.
             if not transcribed_text or not transcribed_text.strip():
+                if phrase_send and not (rule and rule.get('suppress')):
+                    self.logger.info("Send phrase alone; pressing ENTER")
+                    self.clipboard_manager.send_enter_key()
+                    if self.level_overlay:
+                        self.level_overlay.flash_success()
+                    return
                 self.logger.info("Post-processing produced empty text; nothing to deliver")
                 if self.level_overlay:
                     self.level_overlay.flash_failure("Nothing to type")
@@ -572,6 +597,10 @@ class StateManager:
                     effective_auto_enter = False
                 if 'auto_paste' in rule:
                     effective_auto_paste = bool(rule['auto_paste'])
+            # The phrase is an explicit spoken instruction, so it wins over a
+            # rule's `auto_send: false` (which only governs the implicit case).
+            if phrase_send:
+                effective_auto_enter = True
 
             previous_auto_paste = None
             if effective_auto_paste is not None:
