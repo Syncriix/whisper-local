@@ -78,6 +78,31 @@ def setup_portaudio_path():
     if assets_dir.exists():
         os.environ['PATH'] = str(assets_dir) + os.pathsep + os.environ.get('PATH', '')
 
+# pip-installed CUDA runtimes (nvidia-cublas-cu12, nvidia-cudnn-cu12, ...) unpack
+# their DLLs under site-packages/nvidia/<lib>/bin. Nothing puts those on the
+# Windows loader path, so a source install with `device: cuda` fails at the
+# first real transcription with "cublas64_12.dll is not found". The packaged
+# build never hit this because its DLLs sit beside the exe. Called right after
+# setup_portaudio_path, before ctranslate2 is imported anywhere.
+def setup_cuda_dll_path():
+    if sys.platform != 'win32':
+        return
+    try:
+        import nvidia  # namespace package; may not exist on CPU-only installs
+    except ImportError:
+        return
+    added = []
+    for root in getattr(nvidia, '__path__', []):
+        for bin_dir in sorted(Path(root).glob('*/bin')):
+            if bin_dir.is_dir():
+                try:
+                    os.add_dll_directory(str(bin_dir))
+                except (AttributeError, OSError):
+                    pass
+                added.append(str(bin_dir))
+    if added:
+        os.environ['PATH'] = os.pathsep.join(added) + os.pathsep + os.environ.get('PATH', '')
+
 # Find pythonw.exe for the interpreter we're running under. It normally sits
 # beside python.exe, but not always: a venv created with --without-pip, and some
 # Microsoft Store layouts, ship python.exe alone. Fall back to the BASE
