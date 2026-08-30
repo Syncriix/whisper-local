@@ -232,7 +232,8 @@ def setup_audio_feedback(audio_feedback_config):
         stop_sound=audio_feedback_config['stop_sound'],
         cancel_sound=audio_feedback_config['cancel_sound'],
         transcription_complete_sound=audio_feedback_config['transcription_complete_sound'],
-        ready_sound=audio_feedback_config['ready_sound']
+        ready_sound=audio_feedback_config['ready_sound'],
+        send_phrase_sound=audio_feedback_config.get('send_phrase_sound', ''),
     )
 
 def setup_voice_commands(voice_commands_config, clipboard_manager, log_transcriptions=False, config_manager=None):

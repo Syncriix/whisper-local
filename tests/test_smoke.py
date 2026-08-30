@@ -465,6 +465,32 @@ class SendPhraseTests(unittest.TestCase):
         self.assertFalse(send_phrase_heard_live("fix the tests your turn", True, ""))
 
 
+class SendPhraseSoundTests(unittest.TestCase):
+    def test_default_sound_exists_and_is_wired(self):
+        from ruamel.yaml import YAML
+        path = ROOT / "src" / "whisper_key" / "config.defaults.yaml"
+        with open(path, encoding="utf-8") as f:
+            cfg = YAML().load(f)
+        rel = cfg["audio_feedback"]["send_phrase_sound"]
+        self.assertTrue((ROOT / "src" / "whisper_key" / rel).is_file(), rel)
+
+    def test_feedback_plays_only_when_configured(self):
+        from unittest import mock
+        from whisper_key.audio_feedback import AudioFeedback
+        # The constructor prints a status line with a check mark; keep it off a
+        # legacy-codepage console.
+        with mock.patch("builtins.print"):
+            silent = AudioFeedback(enabled=True, send_phrase_sound="")
+            wired = AudioFeedback(enabled=True, send_phrase_sound="assets/sounds/send_phrase.wav")
+        with mock.patch.object(silent, "_play_sound_file_async") as play:
+            silent.play_send_phrase_sound()
+            play.assert_not_called()
+        fb = wired
+        with mock.patch.object(fb, "_play_sound_file_async") as play:
+            fb.play_send_phrase_sound()
+            play.assert_called_once()
+
+
 class StreamingHotwordsTests(unittest.TestCase):
     def test_normalize_uppercases_dedupes_keeps_order(self):
         from whisper_key.streaming_recognizer import normalize_hotwords

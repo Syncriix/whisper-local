@@ -374,6 +374,10 @@ audio_feedback: # Audio Feedback Settings
     transcription_complete_sound: assets/sounds/transcription_complete.wav
     ready_sound: assets/sounds/app_ready.wav
 
+    # Played the moment the send phrase is recognised (live, or in the final
+    # transcript) so you know the message is going out without looking.
+    send_phrase_sound: assets/sounds/send_phrase.wav
+
 terminal_title: # Terminal Tab Title Status
     # Shows "<prefix> Whisper Local" in the terminal tab, reflecting app state.
     # Useful when the tray icon is hidden in the overflow area. Ignored entirely

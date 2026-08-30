@@ -18,6 +18,13 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
   (`clipboard.send_phrase_live`, default on): the real-time model finalizes the
   phrase after your pause and the recording stops and sends with no key at all.
   The delivered text still comes from the full Whisper pass.
+- **Continuous mode survives silence.** The VAD silence timeout used to stop
+  the recording and, with nothing to deliver, leave the microphone closed. In
+  continuous mode an empty stop now restarts recording quietly, so an open mic
+  stays open through long pauses.
+- **Send phrase sound** (`audio_feedback.send_phrase_sound`). A short rising
+  two-tone the moment the phrase is recognised, distinct from the stop sound, so
+  "sent" is audible without looking at the screen.
 - **Streaming hotwords** (`streaming.hotwords`, `streaming.hotwords_score`).
   Phrases the real-time model is biased towards; the send phrase is always one.
   Uses sherpa's modified beam search with the model's `bpe.model`; models

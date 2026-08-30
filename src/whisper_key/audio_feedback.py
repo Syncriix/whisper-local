@@ -17,7 +17,8 @@ from .utils import resolve_asset_path
 class AudioFeedback:
     def __init__(self, enabled=True, transcription_complete_enabled=False,
                  ready_enabled=True, start_sound='', stop_sound='', cancel_sound='',
-                 transcription_complete_sound='', ready_sound=''):
+                 transcription_complete_sound='', ready_sound='',
+                 send_phrase_sound=''):
         self.enabled = enabled
         self.transcription_complete_enabled = transcription_complete_enabled
         self.ready_enabled = ready_enabled
@@ -28,6 +29,7 @@ class AudioFeedback:
         self.cancel_sound_path = resolve_asset_path(cancel_sound)
         self.transcription_complete_sound_path = resolve_asset_path(transcription_complete_sound)
         self.ready_sound_path = resolve_asset_path(ready_sound)
+        self.send_phrase_sound_path = resolve_asset_path(send_phrase_sound) if send_phrase_sound else ''
 
         if not self.enabled:
             self.logger.info("Audio feedback disabled by configuration")
@@ -48,6 +50,9 @@ class AudioFeedback:
 
         if self.cancel_sound_path and not os.path.isfile(self.cancel_sound_path):
             self.logger.warning(f"Cancel sound file not found: {self.cancel_sound_path}")
+
+        if self.send_phrase_sound_path and not os.path.isfile(self.send_phrase_sound_path):
+            self.logger.warning(f"Send phrase sound file not found: {self.send_phrase_sound_path}")
 
         if self.transcription_complete_sound_path and not os.path.isfile(self.transcription_complete_sound_path):
             self.logger.warning(f"Transcription complete sound file not found: {self.transcription_complete_sound_path}")
@@ -76,6 +81,12 @@ class AudioFeedback:
     def play_transcription_complete_sound(self):
         if self.enabled and self.transcription_complete_enabled:
             self._play_sound_file_async(self.transcription_complete_sound_path)
+
+    # The send phrase was recognised and ENTER is on its way. Distinct from the
+    # stop sound so the user can tell "sent" from "stopped" without looking.
+    def play_send_phrase_sound(self):
+        if self.enabled and self.send_phrase_sound_path:
+            self._play_sound_file_async(self.send_phrase_sound_path)
 
     # Played once when startup finishes. Model loading can take a while on a cold
     # start and the app lives in the tray with no window to watch, so an audible

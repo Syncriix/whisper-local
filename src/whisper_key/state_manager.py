@@ -175,7 +175,8 @@ class StateManager:
         if not phrase or not send_phrase_heard_live(text, True, phrase):
             return
         self._phrase_stop_pending = True
-        self.logger.info(f"Send phrase heard live: '{phrase}' — stopping recording")
+        self.logger.info(f"Send phrase heard live: '{phrase}' - stopping recording")
+        self.audio_feedback.play_send_phrase_sound()
         threading.Thread(
             target=self.stop_recording, kwargs={'use_auto_enter': True},
             daemon=True, name='send-phrase-stop',
@@ -397,6 +398,20 @@ class StateManager:
         self._maybe_restart_continuous()
         return text
 
+    # An open microphone in continuous mode goes quiet for long stretches (the
+    # user is listening, thinking, or the assistant is talking with the mic
+    # muted). The VAD silence timeout then stops the recording with nothing in
+    # it; that must not end the session, so restart instead of complaining.
+    def _continuous_idle_restart(self, reason: str) -> bool:
+        audio_cfg = self.config_manager.config.get('audio', {})
+        if not audio_cfg.get('continuous_mode', False) or self.is_paused:
+            return False
+        self.logger.info(f"Continuous mode: {reason}; restarting recording")
+        if self.level_overlay:
+            self.level_overlay.flash_success()
+        self._maybe_restart_continuous()
+        return True
+
     def _maybe_restart_continuous(self):
         audio_cfg = self.config_manager.config.get('audio', {})
         if not audio_cfg.get('continuous_mode', False) or self.is_paused:
@@ -506,6 +521,8 @@ class StateManager:
             self.audio_feedback.play_stop_sound()
 
             if audio_data is None:
+                if self._continuous_idle_restart("no audio captured"):
+                    return
                 self.system_tray.notify("No audio captured — was the mic muted?")
                 # Flash the overlay too — tray balloons are often suppressed by Windows.
                 if self.level_overlay:
@@ -531,6 +548,8 @@ class StateManager:
             transcribed_text = self.whisper_engine.transcribe_audio(audio_data)
 
             if not transcribed_text:
+                if self._continuous_idle_restart("silence only"):
+                    return
                 self.system_tray.notify("Transcription was empty (silence or noise only).")
                 if self.level_overlay:
                     self.level_overlay.flash_failure("No speech detected")
@@ -568,7 +587,9 @@ class StateManager:
             if send_phrase:
                 transcribed_text, phrase_send = strip_send_phrase(transcribed_text, send_phrase)
                 if phrase_send:
-                    self.logger.info(f"Send phrase matched: '{send_phrase}' — will press ENTER")
+                    self.logger.info(f"Send phrase matched: '{send_phrase}' - will press ENTER")
+                    if not self._phrase_stop_pending:  # live path already played it
+                        self.audio_feedback.play_send_phrase_sound()
 
             # Post-processing can legitimately empty the text — e.g. "scratch that"
             # erasing the whole utterance. Don't deliver an empty string (which
@@ -581,6 +602,8 @@ class StateManager:
                     self.clipboard_manager.send_enter_key()
                     if self.level_overlay:
                         self.level_overlay.flash_success()
+                    return
+                if self._continuous_idle_restart("nothing to deliver"):
                     return
                 self.logger.info("Post-processing produced empty text; nothing to deliver")
                 if self.level_overlay:
