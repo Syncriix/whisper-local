@@ -26,6 +26,22 @@ RISKY_PATTERNS = re.compile(
 )
 
 
+# Pure matcher for live commands: normalise the partial (lower, no
+# punctuation), match a trigger only as the final words. Returns the command
+# and the normalised length at the match so a caller can avoid re-firing on
+# the same occurrence as the partial keeps growing.
+def live_match(commands: list, partial_text: str) -> Optional[dict]:
+    normalized = re.sub(r'[^\w\s]', '', (partial_text or '').lower())
+    normalized = ' '.join(normalized.split())
+    if not normalized:
+        return None
+    for command in commands:
+        trigger = ' '.join(str(command.get('trigger', '')).lower().split())
+        if trigger and (normalized == trigger or normalized.endswith(' ' + trigger)):
+            return command
+    return None
+
+
 class VoiceCommandManager:
     def __init__(self, enabled=True, clipboard_manager=None, log_transcriptions=False, ollama_config_provider=None):
         self.enabled = enabled
@@ -77,6 +93,17 @@ class VoiceCommandManager:
 
             valid.append(cmd)
         return valid
+
+    # Commands marked `live: true` are matched against the streaming partial
+    # while a recording is running, so they fire the instant the trigger is
+    # heard, mid-dictation, without stopping the recording. Suffix match on
+    # the partial: the trigger has to be the last thing said.
+    def live_commands(self) -> list:
+        self._reload_if_changed()
+        return [c for c in getattr(self, 'commands', []) if c.get('live')]
+
+    def match_live(self, partial_text: str) -> Optional[dict]:
+        return live_match(self.live_commands(), partial_text)
 
     def match_command(self, text: str) -> Optional[dict]:
         self._reload_if_changed()

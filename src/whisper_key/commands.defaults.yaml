@@ -8,9 +8,20 @@
 # Matching: triggers are case-insensitive substrings — saying "please open notepad"
 # matches the trigger "open notepad". Longer triggers are checked first.
 #
+# Live commands: add `live: true` and the command also fires the moment the
+# real-time model hears the trigger during a recording (needs
+# streaming.streaming_enabled), without stopping the recording. Use it for
+# things you want mid-dictation: "hush" to silence a talking assistant, "pause
+# music". Add the trigger to streaming.hotwords so the live model hears it.
+#
 # Full documentation: https://github.com/drajb/whisper-local/blob/master/docs/voice-commands.md
 
 commands:
+  # Live command example — silence a local TTS server the moment you say "hush"
+  # - trigger: "hush"
+  #   live: true
+  #   run: 'curl -s -X POST http://127.0.0.1:7788/stop'
+
   # Hotkey commands — send keyboard shortcuts to the active window
   - trigger: "undo"
     hotkey: "ctrl+z"

@@ -24,6 +24,11 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
   the recording and, with nothing to deliver, leave the microphone closed. In
   continuous mode an empty stop now restarts recording quietly, so an open mic
   stays open through long pauses.
+- **Live voice commands** (`live: true` in `commands.yaml`). Fire the moment
+  the real-time model hears the trigger during a recording, without stopping
+  it — "hush" to silence a talking assistant mid-sentence. Suffix match on the
+  streaming partial, once per occurrence.
+- Automatic restarts after an empty stop are silent: no start sound, no banner.
 - **Send phrase sound** (`audio_feedback.send_phrase_sound`). A short rising
   two-tone the moment the phrase is recognised, distinct from the stop sound, so
   "sent" is audible without looking at the screen.

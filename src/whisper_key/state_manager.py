@@ -88,6 +88,7 @@ class StateManager:
         self._streaming_display_active = False
         # Live send phrase: set once per recording so a second final can't stop twice.
         self._phrase_stop_pending = False
+        self._live_fired_len = 0
         # Commit-on-endpoint streaming delivery (opt-in). Active only for the
         # current recording when conditions are met; default off → zero impact.
         self._streaming_delivery_active = False
@@ -146,6 +147,7 @@ class StateManager:
     # preview always; when commit-on-endpoint delivery is active, hands FINALIZED
     # phrases to the delivery worker (never the revising partials).
     def handle_streaming_result(self, text: str, is_final: bool):
+        self._watch_live_commands(text, is_final)
         if is_final:
             self._watch_for_send_phrase(text)
             if self._streaming_display_active:
@@ -159,6 +161,25 @@ class StateManager:
             self._streaming_display_active = True
         if self.level_overlay and text:
             self.level_overlay.set_streaming_text(text)
+
+    # ── Live voice commands ──
+    # Partials revise as the user speaks; a trigger fires once per occurrence
+    # (tracked by normalised length) and the counter resets on each final,
+    # because the recogniser starts a fresh phrase after an endpoint.
+    def _watch_live_commands(self, text: str, is_final: bool):
+        vcm = getattr(self, 'voice_command_manager', None)
+        if not vcm or not getattr(vcm, 'enabled', False):
+            return
+        cmd = vcm.match_live(text)
+        if cmd:
+            norm_len = len(' '.join(text.split()))
+            if norm_len != self._live_fired_len:
+                self._live_fired_len = norm_len
+                self.logger.info(f"Live command: '{cmd.get('trigger')}'")
+                threading.Thread(target=vcm.execute_command, args=(cmd,),
+                                 daemon=True, name='live-command').start()
+        if is_final:
+            self._live_fired_len = 0
 
     # ── Live send phrase ──
     # The streaming recogniser finalizes a phrase after the user pauses. If that
@@ -308,8 +329,11 @@ class StateManager:
             if self.level_overlay:
                 self.level_overlay.show_recording()
 
-    def _begin_recording(self):
+    # quiet: an automatic restart after an empty stop. Nothing happened from the
+    # user's point of view, so no start sound and no console banner.
+    def _begin_recording(self, quiet: bool = False):
         self._phrase_stop_pending = False
+        self._live_fired_len = 0
         self._apply_recording_context()
         self._maybe_pause_media()
         success = self.audio_recorder.start_recording()
@@ -318,9 +342,10 @@ class StateManager:
             # Only spin up the streaming-delivery worker once recording is
             # confirmed — otherwise a failed start would leak the worker thread.
             self._setup_streaming_delivery()
-            print("\n🎤 Recording started! Speak now...")
-            self.config_manager.print_stop_instructions_based_on_config()
-            self.audio_feedback.play_start_sound()
+            if not quiet:
+                print("\n🎤 Recording started! Speak now...")
+                self.config_manager.print_stop_instructions_based_on_config()
+                self.audio_feedback.play_start_sound()
             self._update_ui_state("recording")
             if self.level_overlay:
                 self.level_overlay.show_recording()
@@ -407,12 +432,10 @@ class StateManager:
         if not audio_cfg.get('continuous_mode', False) or self.is_paused:
             return False
         self.logger.info(f"Continuous mode: {reason}; restarting recording")
-        if self.level_overlay:
-            self.level_overlay.flash_success()
-        self._maybe_restart_continuous()
+        self._maybe_restart_continuous(quiet=True)
         return True
 
-    def _maybe_restart_continuous(self):
+    def _maybe_restart_continuous(self, quiet: bool = False):
         audio_cfg = self.config_manager.config.get('audio', {})
         if not audio_cfg.get('continuous_mode', False) or self.is_paused:
             return
@@ -426,7 +449,7 @@ class StateManager:
                 return
             if not self.audio_recorder.get_recording_status():
                 self.logger.info("Continuous mode: auto-restarting recording")
-                self._begin_recording()
+                self._begin_recording(quiet=quiet)
         threading.Thread(target=restart, daemon=True, name='continuous-restart').start()
 
     def _maybe_pause_media(self):

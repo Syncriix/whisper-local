@@ -492,6 +492,22 @@ class SendPhraseSoundTests(unittest.TestCase):
             play.assert_called_once()
 
 
+class LiveCommandTests(unittest.TestCase):
+    CMDS = [{"trigger": "hush", "live": True, "run": "x"},
+            {"trigger": "pause music", "live": True, "hotkey": "media_play_pause"}]
+
+    def test_matches_trigger_as_final_words_only(self):
+        from whisper_key.voice_commands import live_match
+        self.assertEqual(live_match(self.CMDS, "OKAY HUSH")["trigger"], "hush")
+        self.assertEqual(live_match(self.CMDS, "hush")["trigger"], "hush")
+        self.assertEqual(live_match(self.CMDS, "Hush!")["trigger"], "hush")
+        self.assertEqual(live_match(self.CMDS, "PLEASE PAUSE  MUSIC")["trigger"], "pause music")
+        self.assertIsNone(live_match(self.CMDS, "HUSH NOW PLEASE"))
+        self.assertIsNone(live_match(self.CMDS, "THE BUSH"))
+        self.assertIsNone(live_match(self.CMDS, ""))
+        self.assertIsNone(live_match([], "hush"))
+
+
 class StreamingHotwordsTests(unittest.TestCase):
     def test_normalize_uppercases_dedupes_keeps_order(self):
         from whisper_key.streaming_recognizer import normalize_hotwords
