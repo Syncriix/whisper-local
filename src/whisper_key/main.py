@@ -552,7 +552,6 @@ def main():
         clipboard_manager = setup_clipboard_manager(clipboard_config)
         audio_feedback = setup_audio_feedback(audio_feedback_config)
         voice_command_manager = setup_voice_commands(voice_commands_config, clipboard_manager, log_transcriptions, config_manager)
-        voice_command_manager.app_action_handler = state_manager.handle_app_action
 
         # Terminal tab title mirrors app state for people running in a visible
         # terminal. Self-disables when stdout isn't a TTY, so it costs nothing

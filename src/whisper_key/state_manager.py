@@ -70,6 +70,9 @@ class StateManager:
         self.audio_feedback = OptionalComponent(audio_feedback)
         self.vad_manager = vad_manager
         self.voice_command_manager = voice_command_manager
+        if voice_command_manager is not None:
+            # `app:` voice commands (standby / wake_up) are handled here.
+            voice_command_manager.app_action_handler = self.handle_app_action
 
         self.is_processing = False
         self.is_model_loading = False
