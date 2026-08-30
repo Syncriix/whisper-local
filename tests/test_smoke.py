@@ -492,6 +492,24 @@ class SendPhraseSoundTests(unittest.TestCase):
             play.assert_called_once()
 
 
+class AppActionCommandTests(unittest.TestCase):
+    def test_app_action_dispatches_to_handler(self):
+        from unittest import mock
+        from whisper_key.voice_commands import VoiceCommandManager
+        vcm = VoiceCommandManager(enabled=False)
+        calls = []
+        vcm.app_action_handler = lambda action, trigger: calls.append((action, trigger))
+        vcm._execute_action({"trigger": "stand by", "app": "standby"}, "stand by")
+        self.assertEqual(calls, [("standby", "stand by")])
+
+    def test_validation_accepts_app_as_the_one_action(self):
+        from whisper_key.voice_commands import VoiceCommandManager
+        vcm = VoiceCommandManager(enabled=False)
+        ok = vcm._validate_commands([{"trigger": "stand by", "app": "standby"},
+                                     {"trigger": "bad", "app": "standby", "run": "x"}])
+        self.assertEqual([c["trigger"] for c in ok], ["stand by"])
+
+
 class LiveCommandTests(unittest.TestCase):
     CMDS = [{"trigger": "hush", "live": True, "run": "x"},
             {"trigger": "pause music", "live": True, "hotkey": "media_play_pause"}]

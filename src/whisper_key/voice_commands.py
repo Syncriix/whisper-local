@@ -81,14 +81,14 @@ class VoiceCommandManager:
         for i, cmd in enumerate(raw_commands):
             trigger = cmd.get('trigger', '')
             has_match = bool(trigger or cmd.get('match_regex'))
-            action_count = sum(1 for key in ('run', 'hotkey', 'type', 'rephrase') if key in cmd)
+            action_count = sum(1 for key in ('run', 'hotkey', 'type', 'rephrase', 'app') if key in cmd)
 
             if not has_match:
                 self.logger.warning(f"Command {i}: missing trigger and match_regex, skipping")
                 continue
 
             if action_count != 1:
-                self.logger.warning(f"Command '{trigger}': needs exactly one of 'run', 'hotkey', 'type', or 'rephrase', skipping")
+                self.logger.warning(f"Command '{trigger}': needs exactly one of 'run', 'hotkey', 'type', 'rephrase', or 'app', skipping")
                 continue
 
             valid.append(cmd)
@@ -199,7 +199,18 @@ class VoiceCommandManager:
             if isinstance(step, dict):
                 self._execute_action(step, trigger + " · then", use_auto_enter=False)
 
+    # `app:` actions are handled by the app itself (standby / wake_up / toggle
+    # pause...). The state manager registers the handler at startup.
+    app_action_handler = None
+
     def _execute_action(self, command: dict, trigger: str, use_auto_enter: bool = False):
+        if 'app' in command:
+            handler = self.app_action_handler
+            if handler:
+                handler(str(command['app']).strip().lower(), trigger)
+            else:
+                self.logger.warning(f"Command '{trigger}': no app action handler registered")
+            return
         if 'run' in command:
             # If the command pulls in clipboard/selection content, that content is
             # untrusted — force a confirmation so the user always sees the final

@@ -21,6 +21,14 @@ commands:
   # - trigger: "hush"
   #   live: true
   #   run: 'curl -s -X POST http://127.0.0.1:7788/stop'
+  # App actions — "app:" instead of run/hotkey/type. standby: keep listening for
+  # live commands but deliver nothing (walk away, switch windows); wake_up: resume.
+  # - trigger: "stand by"
+  #   live: true
+  #   app: standby
+  # - trigger: "wake up"
+  #   live: true
+  #   app: wake_up
 
   # Hotkey commands — send keyboard shortcuts to the active window
   - trigger: "undo"

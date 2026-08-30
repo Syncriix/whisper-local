@@ -89,6 +89,10 @@ class StateManager:
         # Live send phrase: set once per recording so a second final can't stop twice.
         self._phrase_stop_pending = False
         self._live_fired_len = 0
+        # Standby: keep listening for live commands, deliver nothing. Lets the
+        # user walk away or work in another window without dictation landing
+        # somewhere, and come back with a word.
+        self.standby = False
         # Commit-on-endpoint streaming delivery (opt-in). Active only for the
         # current recording when conditions are met; default off → zero impact.
         self._streaming_delivery_active = False
@@ -162,6 +166,31 @@ class StateManager:
         if self.level_overlay and text:
             self.level_overlay.set_streaming_text(text)
 
+    # ── App actions (from `app:` voice commands) ──
+    def handle_app_action(self, action: str, trigger: str):
+        if action in ('standby', 'stand_by'):
+            self._set_standby(True)
+        elif action in ('wake_up', 'wake', 'resume'):
+            self._set_standby(False)
+        elif action in ('toggle_standby',):
+            self._set_standby(not self.standby)
+        else:
+            self.logger.warning(f"Unknown app action '{action}' for command '{trigger}'")
+
+    def _set_standby(self, on: bool):
+        if self.standby == on:
+            return
+        self.standby = on
+        self.logger.info("Standby ON: listening for live commands only" if on else "Standby OFF: delivering again")
+        print("   ⏸ Standby — say the wake word to deliver again" if on else "   ▶ Awake — delivering again")
+        if on:
+            self.audio_feedback.play_cancel_sound()
+        else:
+            self.audio_feedback.play_ready_sound()
+        self.system_tray.notify("Standby: dictation is not delivered until you wake me." if on
+                                else "Awake: dictation is delivered again.")
+        self.system_tray.refresh_menu()
+
     # ── Live voice commands ──
     # Partials revise as the user speaks; a trigger fires once per occurrence
     # (tracked by normalised length) and the counter resets on each final,
@@ -188,7 +217,7 @@ class StateManager:
     # Whisper) is handed to a worker; the recording flag flips immediately.
     def _watch_for_send_phrase(self, text: str):
         self.logger.debug(f"Streaming final: {text[-80:]!r}")
-        if self._phrase_stop_pending or not self.audio_recorder.get_recording_status():
+        if self.standby or self._phrase_stop_pending or not self.audio_recorder.get_recording_status():
             return
         if not self.config_manager.get_clipboard_config().get('send_phrase_live', True):
             return
@@ -597,6 +626,14 @@ class StateManager:
 
             if rephrase_mode and rephrase_selection:
                 self._handle_rephrase(rephrase_selection, transcribed_text)
+                return
+
+            if self.standby:
+                # Heard, kept in history, delivered nowhere.
+                self.logger.info(f"Standby: dictation not delivered ({len(transcribed_text)} chars)")
+                self.last_transcription = transcribed_text
+                self.recent_transcriptions.appendleft(transcribed_text)
+                self._maybe_restart_continuous(quiet=True)
                 return
 
             # Match the foreground app once, before post-processing, so a rule can

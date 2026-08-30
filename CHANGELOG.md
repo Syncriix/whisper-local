@@ -24,6 +24,10 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
   the recording and, with nothing to deliver, leave the microphone closed. In
   continuous mode an empty stop now restarts recording quietly, so an open mic
   stays open through long pauses.
+- **Standby** (`app: standby` / `app: wake_up` voice-command actions). Keep
+  listening for live commands but deliver nothing — walk away, work in another
+  window — and come back with the wake word. `app:` is a new action kind next
+  to run/hotkey/type/rephrase, handled by the app itself.
 - **Live voice commands** (`live: true` in `commands.yaml`). Fire the moment
   the real-time model hears the trigger during a recording, without stopping
   it — "hush" to silence a talking assistant mid-sentence. Suffix match on the
