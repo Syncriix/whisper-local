@@ -18,6 +18,10 @@ History inherited from upstream [`whisper-key-local`](https://github.com/PinW/wh
   (`clipboard.send_phrase_live`, default on): the real-time model finalizes the
   phrase after your pause and the recording stops and sends with no key at all.
   The delivered text still comes from the full Whisper pass.
+- **Streaming hotwords** (`streaming.hotwords`, `streaming.hotwords_score`).
+  Phrases the real-time model is biased towards; the send phrase is always one.
+  Uses sherpa's modified beam search with the model's `bpe.model`; models
+  without one keep greedy search and log a warning.
 - **Source installs on Windows with `device: cuda`** hung on the first real
   transcription: the pip-installed NVIDIA runtimes unpack under
   `site-packages/nvidia/*/bin`, which is on no loader path, so ctranslate2 could

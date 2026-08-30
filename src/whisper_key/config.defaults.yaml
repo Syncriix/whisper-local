@@ -138,6 +138,14 @@ streaming: # Real-time STT (Experimental)
     # Streaming model type
     streaming_model: zipformer.tiny.en
 
+    # Hotwords: phrases the real-time model should favour while decoding, so a
+    # short command is heard as itself and not as a sound-alike. The send phrase
+    # (clipboard.send_phrase) is always included. Needs a model that ships its
+    # BPE vocabulary (bpe.model in the model folder, e.g. the zipformer.en
+    # models below); models without one ignore hotwords with a warning.
+    hotwords: []
+    hotwords_score: 1.5   # bias strength; 1.0-2.0 is the useful range
+
     # Available streaming models
     # Requires sherpa-onnx streaming transducer models (e.g., Zipformer)
     # Browse models: https://k2-fsa.github.io/sherpa/onnx/pretrained_models/index.html

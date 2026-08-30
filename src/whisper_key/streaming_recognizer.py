@@ -18,13 +18,50 @@ if TYPE_CHECKING:
 SHERPA_SAMPLE_RATE = 16000
 
 
+# Upper-case, collapse whitespace, drop empties and duplicates, keep order.
+def normalize_hotwords(phrases) -> list:
+    out = []
+    for p in phrases or []:
+        if not p:
+            continue
+        p = " ".join(str(p).split()).upper()
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
+# sherpa wants the BPE vocabulary as text ("piece<TAB>score" per line) but the
+# models ship only the binary bpe.model. Export it once beside the model and
+# reuse it; return None when the model has no BPE or sentencepiece is missing.
+def ensure_bpe_vocab(model_path: str):
+    vocab = os.path.join(model_path, "bpe.vocab")
+    if os.path.exists(vocab):
+        return vocab
+    model = os.path.join(model_path, "bpe.model")
+    if not os.path.exists(model):
+        return None
+    try:
+        import sentencepiece as spm
+        sp = spm.SentencePieceProcessor(model_file=model)
+        with open(vocab, "w", encoding="utf-8") as f:
+            for i in range(sp.get_piece_size()):
+                f.write(f"{sp.id_to_piece(i)}\t{sp.get_score(i)}\n")
+        return vocab
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Could not export BPE vocab from {model}: {e}")
+        return None
+
+
 class StreamingRecognizer:
     def __init__(self, model_type: str = "standard", recording_rate: int = 16000,
-                 model_registry: "ModelRegistry" = None):
+                 model_registry: "ModelRegistry" = None,
+                 hotwords: list = None, hotwords_score: float = 1.5):
         self.logger = logging.getLogger(__name__)
         self.model_type = model_type
         self.recording_rate = recording_rate
         self.model_registry = model_registry
+        self.hotwords = list(hotwords or [])
+        self.hotwords_score = float(hotwords_score)
         self.recognizer = None
         self.stream = None
 
@@ -56,7 +93,10 @@ class StreamingRecognizer:
                 self.logger.warning(f"Missing streaming model file: {name}")
                 return False
 
-        self.recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+        # Hotword biasing needs beam search plus the model's BPE vocabulary to
+        # turn the phrases into token sequences. Without bpe.model we stay on
+        # greedy search (faster) and say so once.
+        base = dict(
             encoder=encoder,
             decoder=decoder,
             joiner=joiner,
@@ -64,7 +104,6 @@ class StreamingRecognizer:
             num_threads=4,
             sample_rate=SHERPA_SAMPLE_RATE,
             feature_dim=80,
-            decoding_method="greedy_search",
             provider="cpu",
             enable_endpoint_detection=True,
             rule1_min_trailing_silence=2.4,
@@ -72,9 +111,44 @@ class StreamingRecognizer:
             rule3_min_utterance_length=300,
         )
 
+        if self.hotwords:
+            bpe_vocab = ensure_bpe_vocab(model_path)
+            if bpe_vocab:
+                try:
+                    self.recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+                        **base,
+                        decoding_method="modified_beam_search",
+                        hotwords_file=self._write_hotwords_file(),
+                        hotwords_score=self.hotwords_score,
+                        modeling_unit="bpe",
+                        bpe_vocab=bpe_vocab,
+                    )
+                    self.logger.info(f"Streaming hotwords active ({len(self.hotwords)}): {self.hotwords}")
+                except Exception as e:
+                    # A bad hotword setup must never take the app down; the
+                    # live preview still works, just without the bias.
+                    self.logger.warning(f"Hotwords rejected by sherpa-onnx, using greedy search: {e}")
+                    self.recognizer = None
+            else:
+                self.logger.warning(
+                    f"Streaming model '{self.model_type}' has no BPE vocabulary; hotwords ignored")
+
+        if self.recognizer is None:
+            self.recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+                **base, decoding_method="greedy_search")
+
         self.stream = self.recognizer.create_stream()
         self.logger.info(f"Streaming recognizer loaded: {self.model_type}")
         return True
+
+    # sherpa reads hotwords from a file, one phrase per line, in the model's
+    # casing (these English zipformers emit upper case).
+    def _write_hotwords_file(self) -> str:
+        from .utils import get_user_app_data_path
+        path = os.path.join(get_user_app_data_path(), "streaming_hotwords.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(normalize_hotwords(self.hotwords)) + "\n")
+        return path
 
     # Warmup required to work-around clipping of first speech detected
     def warmup(self) -> bool:

@@ -72,10 +72,14 @@ class StreamingManager:
     def __init__(self,
                  streaming_enabled: bool = False,
                  streaming_model: str = "standard",
-                 model_registry: "ModelRegistry" = None):
+                 model_registry: "ModelRegistry" = None,
+                 hotwords: list = None,
+                 hotwords_score: float = 1.5):
         self.streaming_enabled = streaming_enabled
         self.streaming_model = streaming_model
         self.model_registry = model_registry
+        self.hotwords = list(hotwords or [])
+        self.hotwords_score = hotwords_score
         self.recognizer: Optional[StreamingRecognizer] = None
         self._model_loaded = False
         self.logger = logging.getLogger(__name__)
@@ -93,7 +97,9 @@ class StreamingManager:
 
         self.recognizer = StreamingRecognizer(
             model_type=self.streaming_model,
-            model_registry=self.model_registry
+            model_registry=self.model_registry,
+            hotwords=self.hotwords,
+            hotwords_score=self.hotwords_score,
         )
         success = self.recognizer.load_model()
 

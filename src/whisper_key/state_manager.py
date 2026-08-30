@@ -166,6 +166,7 @@ class StateManager:
     # key had been pressed. Runs on the audio thread, so the stop (which runs
     # Whisper) is handed to a worker; the recording flag flips immediately.
     def _watch_for_send_phrase(self, text: str):
+        self.logger.debug(f"Streaming final: {text[-80:]!r}")
         if self._phrase_stop_pending or not self.audio_recorder.get_recording_status():
             return
         if not self.config_manager.get_clipboard_config().get('send_phrase_live', True):

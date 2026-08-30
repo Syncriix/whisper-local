@@ -312,6 +312,12 @@ clipboard:
 The live model only decides *when* to stop; the delivered text still comes
 from the full Whisper pass.
 
+The phrase is also registered as a **hotword** for the live model, so it is
+heard as itself rather than a sound-alike. That needs a streaming model that
+ships its BPE vocabulary; the default tiny model does not, so either add one
+(the `zipformer-en-2023-06-26` release does) or accept that the live stop is
+less reliable with the tiny model. `streaming.hotwords` takes further phrases.
+
 ## 🧹 Optional LLM cleanup
 
 If you have [Ollama](https://ollama.ai) running locally, Whisper Local can

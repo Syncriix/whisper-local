@@ -465,6 +465,24 @@ class SendPhraseTests(unittest.TestCase):
         self.assertFalse(send_phrase_heard_live("fix the tests your turn", True, ""))
 
 
+class StreamingHotwordsTests(unittest.TestCase):
+    def test_normalize_uppercases_dedupes_keeps_order(self):
+        from whisper_key.streaming_recognizer import normalize_hotwords
+        self.assertEqual(
+            normalize_hotwords(["your turn", "  Your   Turn ", "engage", "", None, "ENGAGE"]),
+            ["YOUR TURN", "ENGAGE"],
+        )
+        self.assertEqual(normalize_hotwords(None), [])
+
+    def test_defaults_ship_no_hotwords(self):
+        from ruamel.yaml import YAML
+        path = ROOT / "src" / "whisper_key" / "config.defaults.yaml"
+        with open(path, encoding="utf-8") as f:
+            cfg = YAML().load(f)
+        self.assertEqual(list(cfg["streaming"]["hotwords"]), [])
+        self.assertGreater(float(cfg["streaming"]["hotwords_score"]), 0)
+
+
 class AppRulesShapeTests(unittest.TestCase):
     def test_defaults_yaml_is_valid(self):
         from ruamel.yaml import YAML

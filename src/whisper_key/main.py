@@ -157,11 +157,18 @@ def setup_vad(vad_config):
         vad_silence_timeout_seconds=vad_config['vad_silence_timeout_seconds']
     )
 
-def setup_streaming(streaming_config, model_registry):
+def setup_streaming(streaming_config, model_registry, send_phrase=''):
+    # The send phrase is the one word the live model must never mishear, so
+    # it is always a hotword; user hotwords come first, duplicates collapse.
+    hotwords = list(streaming_config.get('hotwords') or [])
+    if send_phrase:
+        hotwords.append(send_phrase)
     return StreamingManager(
         streaming_enabled=streaming_config.get('streaming_enabled', False),
         streaming_model=streaming_config.get('streaming_model', 'standard'),
-        model_registry=model_registry
+        model_registry=model_registry,
+        hotwords=hotwords,
+        hotwords_score=streaming_config.get('hotwords_score', 1.5),
     )
 
 def setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transcriptions=False, config_manager=None):
@@ -535,7 +542,10 @@ def main():
             streaming_models_config=streaming_config.get('models', {})
         )
         vad_manager = setup_vad(vad_config)
-        streaming_manager = setup_streaming(streaming_config, model_registry)
+        streaming_manager = setup_streaming(
+            streaming_config, model_registry,
+            send_phrase=str(config_manager.get_clipboard_config().get('send_phrase') or '').strip(),
+        )
         whisper_engine = setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transcriptions, config_manager)
         streaming_manager.initialize()
         clipboard_manager = setup_clipboard_manager(clipboard_config)

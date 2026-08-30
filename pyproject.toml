@@ -54,6 +54,7 @@ dependencies = [
     "hf-xet>=1.1.5",
     "playsound3>=2.0",
     "ten-vad>=1.0.6",
+    "sentencepiece>=0.2.0",  # BPE vocab export for streaming hotwords
 
     # Windows-only
     "global-hotkeys>=0.1.7; sys_platform=='win32'",
