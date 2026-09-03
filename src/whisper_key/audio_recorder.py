@@ -18,6 +18,7 @@
 #     surfaces a console warning on stop.
 
 import collections
+import os
 import logging
 import threading
 import time
@@ -96,6 +97,8 @@ class AudioRecorder:
         self._capture_thread = None
         self._stream_error = None
         self._current_level = 0.0
+        self._tap_file = None
+        self._tap_written = 0
         self._start_capture()
 
     def _setup_continuous_vad_monitoring(self):
@@ -132,6 +135,26 @@ class AudioRecorder:
                     self._resolve_hostapi(None)
             except Exception as e:
                 self.logger.warning(f"Failed to load device {device}: {e}. Falling back to default input")
+                self.device = None
+                self._resolve_hostapi(None)
+        elif isinstance(device, str) and device.strip():
+            # Name (substring, case-insensitive). Names survive reboots where
+            # indices shift. Prefer a WASAPI match; among ties take the highest
+            # native rate (the full-band endpoint, not a hands-free profile).
+            needle = device.strip().lower()
+            matches = []
+            for idx, info in enumerate(sd.query_devices()):
+                if info.get('max_input_channels', 0) > 0 and needle in info['name'].lower():
+                    api = sd.query_hostapis(info['hostapi'])['name']
+                    matches.append((api == 'Windows WASAPI', info['default_samplerate'], idx, info))
+            if matches:
+                matches.sort(reverse=True)
+                _, _, idx, info = matches[0]
+                self.device = idx
+                self._resolve_hostapi(info)
+                self.logger.info(f"Input device by name {device!r} -> [{idx}] {info['name']}")
+            else:
+                self.logger.warning(f"No input device matches {device!r}; using default")
                 self.device = None
                 self._resolve_hostapi(None)
         else:
@@ -224,6 +247,13 @@ class AudioRecorder:
                         self._resolve_hostapi(None)
                         self._recording_rate = self._get_recording_sample_rate()
                         self._needs_resampling_cached = self._needs_resampling()
+                        # The new device may run at a different rate. Everything
+                        # that consumes raw chunks must follow, or the streaming
+                        # recogniser decodes triple-speed gibberish from then on.
+                        self._vad_blocksize = int(VAD_CHUNK_SIZE * self._recording_rate / self.WHISPER_SAMPLE_RATE)
+                        if self.continuous_streaming:
+                            self.continuous_streaming.set_recording_rate(self._recording_rate)
+                        self.logger.info(f"Capture rate now {self._recording_rate} Hz; streaming recogniser resynced")
                     except Exception as resolve_err:
                         self.logger.error(f"Could not resolve default device: {resolve_err}")
                     time.sleep(0.5)
@@ -259,6 +289,20 @@ class AudioRecorder:
 
             if self.continuous_streaming:
                 self.continuous_streaming.process_chunk(chunk)
+                # Debug tap (WHISPERKEY_TAP=dir): dump the exact samples sherpa
+                # receives, first ~10 s per recording, for offline decoding.
+                tap = os.environ.get('WHISPERKEY_TAP')
+                if tap:
+                    try:
+                        if self._tap_file is None:
+                            self._tap_file = open(os.path.join(tap, f"tap_{int(time.time())}_{self._recording_rate}hz.f32"), "ab")
+                            self._tap_written = 0
+                        if self._tap_written < self._recording_rate * 10:
+                            data = chunk.astype(np.float32).tobytes()
+                            self._tap_file.write(data)
+                            self._tap_written += len(chunk)
+                    except OSError:
+                        pass
 
         if status:
             self.logger.debug(f"Audio callback status: {status}")
@@ -276,6 +320,13 @@ class AudioRecorder:
             self.continuous_streaming.reset()
 
         preroll_chunks = len(self._buffer)
+        if getattr(self, '_tap_file', None):
+            try:
+                self._tap_file.close()
+            except OSError:
+                pass
+        self._tap_file = None
+        self._tap_written = 0
         self.is_recording = True
         self.logger.debug(f"Recording started with {preroll_chunks} preroll chunks (~{preroll_chunks * self._vad_blocksize / self._recording_rate:.2f}s)")
         return True
