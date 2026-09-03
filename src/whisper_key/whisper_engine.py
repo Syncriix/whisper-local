@@ -244,6 +244,10 @@ class WhisperEngine:
             segments, info = self.model.transcribe(audio_data, **transcribe_kwargs)
 
             segments = list(segments)
+            for seg in segments:
+                self.logger.info(
+                    "segment: %r no_speech=%.2f logprob=%.2f compression=%.2f",
+                    seg.text.strip()[:60], seg.no_speech_prob, seg.avg_logprob, seg.compression_ratio)
             hf = self.hallucination_filter
             if hf.get('enabled', True):
                 segments, dropped = drop_hallucinated_segments(

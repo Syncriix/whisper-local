@@ -154,6 +154,9 @@ class StateManager:
     # preview always; when commit-on-endpoint delivery is active, hands FINALIZED
     # phrases to the delivery worker (never the revising partials).
     def handle_streaming_result(self, text: str, is_final: bool):
+        self._partials_seen = getattr(self, '_partials_seen', 0) + 1
+        if self._partials_seen <= 12 or is_final:
+            self.logger.info(f"streaming {'final' if is_final else 'partial'} #{self._partials_seen}: {text[-70:]!r}")
         self._watch_live_commands(text, is_final)
         if is_final:
             self._watch_for_send_phrase(text)
@@ -219,7 +222,7 @@ class StateManager:
     # key had been pressed. Runs on the audio thread, so the stop (which runs
     # Whisper) is handed to a worker; the recording flag flips immediately.
     def _watch_for_send_phrase(self, text: str):
-        self.logger.debug(f"Streaming final: {text[-80:]!r}")
+        self.logger.info(f"Streaming final: {text[-80:]!r}")
         if self.standby or self._phrase_stop_pending or not self.audio_recorder.get_recording_status():
             return
         if not self.config_manager.get_clipboard_config().get('send_phrase_live', True):
@@ -366,6 +369,7 @@ class StateManager:
     def _begin_recording(self, quiet: bool = False):
         self._phrase_stop_pending = False
         self._live_fired_len = 0
+        self._partials_seen = 0
         self._apply_recording_context()
         self._maybe_pause_media()
         success = self.audio_recorder.start_recording()
@@ -578,6 +582,7 @@ class StateManager:
                 self._rephrase_mode = False
                 self._rephrase_selection = ''
 
+            self.logger.info(f"streaming results this recording: {getattr(self, '_partials_seen', 0)}")
             if not auto_stop:
                 self.audio_feedback.play_stop_sound()
 
