@@ -218,7 +218,11 @@ class StreamingRecognizer:
     def reset(self) -> None:
         if not self.is_loaded():
             return
-        self.recognizer.reset(self.stream)
+        # sherpa's reset(stream) leaves decode-state residue behind (observed:
+        # junk tokens prepended after a reset, compounding over hundreds of
+        # endpoint resets into full gibberish). A fresh stream is cheap and
+        # residue-free by construction, so never reuse one across utterances.
+        self.stream = self.recognizer.create_stream()
 
     def set_recording_rate(self, rate: int) -> None:
         self.recording_rate = rate
